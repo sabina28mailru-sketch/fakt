@@ -3,7 +3,13 @@ import { listEditions, readSettings } from "@/lib/store";
 import { todayIso } from "@/lib/utils";
 
 export const runtime = "nodejs";
-export const maxDuration = 600;
+/*
+ * Потолок длительности запроса. Локально ограничения нет, но бессерверный
+ * хостинг обрывает функцию по своему пределу, и 600 секунд он не даст.
+ * 300 — столько, сколько там вообще бывает доступно; прогон ленты
+ * укладывается в 130 секунд, выпуска — в 260.
+ */
+export const maxDuration = 300;
 
 /**
  * POST /api/generate — запускает конвейер и стримит события как SSE:

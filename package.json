@@ -12,10 +12,12 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "preview:build": "node scripts/build-preview.mjs",
-    "test": "node --test tests/"
+    "test": "node --test tests/",
+    "migrate": "node scripts/migrate-to-db.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.23.0",
+    "@neondatabase/serverless": "^1.1.0",
     "clsx": "^2.1.1",
     "framer-motion": "^13.4.0",
     "lucide-react": "^1.47.0",
