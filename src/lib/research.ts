@@ -143,10 +143,10 @@ function judgeSystem(intent: ResearchIntent, today: string): string {
     "evidence — цитата строго из текста страницы, без изменений. Ничего не сочиняй: ни цитат, ни дат, ни ссылок.",
     "date — дата публикации в формате ГГГГ-ММ-ДД, если она есть в тексте или передана в метаданных. Если даты нет — пустая строка. Выдумывать дату запрещено.",
     "facts — до четырёх конкретных фактов с этой страницы: числа, выборки, названия, сроки. Только то, что реально написано на странице. Если материал не соответствует теме (relation: off), facts, summary, whyNow и sources оставляй пустыми — они всё равно не понадобятся.",
-    "sources — ссылки, на которые ссылается сама страница как на первоисточник: официальные документы, исследования, пресс-релизы. Бери URL только те, что есть в тексте страницы. Если таких нет — пустой массив.",
+    "sources — ссылки ТОЛЬКО из числа страниц, переданных тебе в этом сообщении. Адреса, которых в списке нет, система отбросит: при скачивании ссылки вырезаются вместе с разметкой, и проверить их нечем. Восстанавливать адрес по памяти запрещено — выдуманная ссылка рядом с настоящей цитатой хуже, чем её отсутствие. Нет подходящих — пустой массив.",
     "signals — наблюдаемые признаки для оценки надёжности. Отвечай честно, это не оценка качества материала, а фиксация фактов о нём.",
     "ОТВЕТ — ТОЛЬКО JSON:",
-    `{"items":[{"url":"адрес страницы как он дан","relation":"core|related|off","reason":"почему именно так","relationNote":"для related — чем связано","evidence":"дословная цитата","title":"заголовок материала","summary":"1–2 предложения о чём материал","whyNow":"почему это актуально сейчас","date":"ГГГГ-ММ-ДД или пусто","outlet":"название издания","facts":["…"],"sources":[{"title":"…","url":"…","outlet":"…","kind":"primary|research|official|publication"}],"signals":{"hasPrimarySource":false,"independentConfirmations":0,"peerReviewedOrOfficial":false,"outletReputable":false,"authorKnown":false,"hasConcreteEvidence":false,"clickbaitMarkers":false,"unverifiedClaims":false}}]}`,
+    `{"items":[{"url":"адрес страницы как он дан","relation":"core|related|off","reason":"почему именно так","relationNote":"для related — чем связано","evidence":"дословная цитата","title":"заголовок материала","summary":"1–2 предложения о чём материал","whyNow":"почему это актуально сейчас","date":"ГГГГ-ММ-ДД или пусто","outlet":"название издания","facts":["…"],"sources":[{"title":"…","url":"адрес ТОЛЬКО из числа переданных тебе страниц; чужих адресов по памяти не приводи","outlet":"…","kind":"primary|research|official|publication"}],"signals":{"hasPrimarySource":false,"independentConfirmations":0,"peerReviewedOrOfficial":false,"outletReputable":false,"authorKnown":false,"hasConcreteEvidence":false,"clickbaitMarkers":false,"unverifiedClaims":false}}]}`,
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -575,7 +575,20 @@ export async function* runResearch(opts: ResearchOptions): AsyncGenerator<Resear
       const date = typeof raw.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(raw.date) ? raw.date : hit?.publishedDate ?? "";
       const normalizedDate = normalizeDate(date);
       const days = ageInDays(normalizedDate, now);
-      const sources = parseSources(raw.sources, pageUrls);
+      /*
+       * Только те источники, чьи страницы мы реально скачивали.
+       *
+       * Раньше сюда проходили адреса, названные моделью, — и рисовались
+       * кликабельными ссылками. Но htmlToText вырезает ссылки вместе с
+       * разметкой ещё при скачивании, значит взять URL со страницы модель
+       * не могла: она восстанавливала его по памяти. Правдоподобный
+       * выдуманный адрес рядом с настоящей цитатой — ровно то, что
+       * запрещено правилами проекта, и он ещё поднимал балл на +20.
+       *
+       * Та же правка уже сделана в ленте; разная строгость в соседних
+       * разделах — это не гибкость, а лазейка.
+       */
+      const sources = parseSources(raw.sources, pageUrls).filter((s) => pageUrls.has(s.url));
 
       const signals: CredibilitySignals = {
         hasPrimarySource: Boolean(raw.signals?.hasPrimarySource) && sources.some((s) => s.kind !== "publication"),
