@@ -122,6 +122,17 @@ function Shell({ initialEditions, initialSettings, initialTags, initialResearch,
   const hasFeedToday = useMemo(() => feeds.some((f) => f.date === today), [feeds, today]);
   const briefDirty = useMemo(() => JSON.stringify(briefDraft) !== JSON.stringify(settings), [briefDraft, settings]);
 
+  /*
+   * Панель прогона принадлежит своему разделу: лента собирается в «Сегодня»,
+   * выпуск — в «Выпуске». Раньше она висела над всеми разделами сразу, и
+   * шаги сборки ленты — «Повестка», «Сборка тем» — встречали человека в
+   * «Выпуске», где такого шага нет вовсе.
+   *
+   * Уйти из раздела при этом не значит потерять прогон: он продолжается,
+   * в шапке остаётся «Остановить», а панель ждёт возвращения в том же виде.
+   */
+  const panelHere = view === (panelKind === "feed" ? "today" : "edition");
+
   const navStatus = useMemo<NavStatus | undefined>(() => {
     if (!current) return undefined;
     const by = (c: Edition["facts"][number]["confidence"]) => current.facts.filter((f) => f.confidence === c).length;
@@ -457,7 +468,7 @@ function Shell({ initialEditions, initialSettings, initialTags, initialResearch,
           />
 
           <AnimatePresence initial={false}>
-            {panelOpen && (
+            {panelOpen && panelHere && (
               <PipelinePanel
                 key="pipeline"
                 state={pipeline}
@@ -470,7 +481,7 @@ function Shell({ initialEditions, initialSettings, initialTags, initialResearch,
           </AnimatePresence>
 
           {/* Панель скрыта, но прогон был: свёрнутая полоса возвращает её без нового запуска. */}
-          {!panelOpen && pipeline.status !== "idle" && (
+          {!panelOpen && panelHere && pipeline.status !== "idle" && (
             <PipelineSummaryBar state={pipeline} onOpen={() => setPanelOpen(true)} />
           )}
 
