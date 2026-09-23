@@ -528,7 +528,13 @@ function Toggle({
       onClick={onToggle}
       aria-expanded={open}
       aria-label={label}
-      className={cn("group flex w-full items-center gap-2 text-left", className)}
+      className={cn(
+        "group flex w-full items-center gap-2 text-left",
+        // На тач-экранах заголовок-переключатель тянется до 44px, как кнопки:
+        // палец не попадает в строку высотой в текст.
+        "[@media(pointer:coarse)]:min-h-11",
+        className,
+      )}
     >
       <ChevronDown
         size={14}
