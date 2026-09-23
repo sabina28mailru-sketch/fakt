@@ -108,6 +108,7 @@ function Shell({ initialEditions, initialSettings, initialTags, initialResearch,
   const running = pipeline.status === "running";
   const isToday = current?.date === today;
   const hasToday = useMemo(() => editions.some((e) => e.date === today), [editions, today]);
+  const hasFeedToday = useMemo(() => feeds.some((f) => f.date === today), [feeds, today]);
   const briefDirty = useMemo(() => JSON.stringify(briefDraft) !== JSON.stringify(settings), [briefDraft, settings]);
 
   const navStatus = useMemo<NavStatus | undefined>(() => {
@@ -396,7 +397,9 @@ function Shell({ initialEditions, initialSettings, initialTags, initialResearch,
             date={today}
             model={settings.model}
             running={running}
-            onGenerate={generate}
+            view={view}
+            hasFeedToday={hasFeedToday}
+            onGenerate={view === "today" ? () => generateFeed() : generate}
             onCancel={cancel}
             isDark={isDark}
             onToggleTheme={toggle}

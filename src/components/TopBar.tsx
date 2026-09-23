@@ -18,6 +18,8 @@ export function TopBar({
   onToggleTheme,
   preview,
   hasToday,
+  hasFeedToday,
+  view,
 }: {
   date: string;
   model: string;
@@ -30,6 +32,10 @@ export function TopBar({
   preview: boolean;
   /** Сегодняшний выпуск уже есть — повторный прогон спрашивает подтверждение. */
   hasToday: boolean;
+  /** Собрана ли лента на сегодня — от этого зависит, что делает главная кнопка. */
+  hasFeedToday: boolean;
+  /** Открытый раздел: кнопка должна запускать его конвейер, а не соседний. */
+  view: string;
 }) {
   const reduce = useReducedMotion();
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -37,7 +43,9 @@ export function TopBar({
   const popRef = useRef<HTMLDivElement>(null);
 
   // Повторная генерация стоит денег и 3–6 минут, поэтому спрашиваем, а не запускаем молча.
-  const needsConfirm = hasToday && !preview && !running;
+  // Подтверждение нужно, когда за сегодня уже что-то собрано и повтор
+  // потратит квоту заново — в том разделе, где человек стоит.
+  const needsConfirm = (view === "today" ? hasFeedToday : hasToday) && !preview && !running;
 
   useEffect(() => {
     if (!confirmOpen) return;
@@ -63,14 +71,35 @@ export function TopBar({
     if (confirmOpen) popRef.current?.focus();
   }, [confirmOpen]);
 
+  /*
+   * Кнопка обязана делать то, что написано на разделе, где человек стоит.
+   * Раньше на экране «Сегодня» она называлась «Сгенерировать выпуск» и
+   * запускала СОСЕДНИЙ раздел: человек жмёт главную кнопку на главном
+   * экране и получает не то, что ждал, потратив квоту.
+   */
+  const forFeed = view === "today";
   const longLabel = preview
     ? "Как это работает"
     : running
       ? "Собираю…"
-      : hasToday
-        ? "Обновить выпуск"
-        : "Сгенерировать выпуск";
-  const shortLabel = preview ? "Как работает" : running ? "Собираю…" : hasToday ? "Обновить" : "Сгенерировать";
+      : forFeed
+        ? hasFeedToday
+          ? "Пересобрать ленту"
+          : "Собрать ленту дня"
+        : hasToday
+          ? "Обновить выпуск"
+          : "Сгенерировать выпуск";
+  const shortLabel = preview
+    ? "Как работает"
+    : running
+      ? "Собираю…"
+      : forFeed
+        ? hasFeedToday
+          ? "Пересобрать"
+          : "Собрать"
+        : hasToday
+          ? "Обновить"
+          : "Сгенерировать";
 
   const handleMain = () => {
     if (needsConfirm) {

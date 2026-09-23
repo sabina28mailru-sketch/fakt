@@ -287,7 +287,9 @@
   /* Заголовок темы дня гаснет книзу — главный приём референса. */
   .t-d1 {
     font-family: var(--font-display);
-    font-size: clamp(25px, 3.4vw, 38px);
+    /* Дата — это контекст, а не содержание. Раньше она была самым крупным
+       текстом на главном экране, крупнее заголовков тем, которые и выбирают. */
+    font-size: clamp(22px, 2.4vw, 27px);
     line-height: 1.14;
     letter-spacing: -0.045em;
     font-weight: 500;
@@ -299,14 +301,17 @@
   }
 
   .t-d2 {
-    font-size: 17px;
+    /* Заголовок раздела. Поднят с 17px, чтобы не сравняться с заголовком
+       темы: одинаковый размер у соседних уровней — это отсутствие иерархии. */
+    font-size: 19.5px;
     line-height: 1.26;
     letter-spacing: -0.02em;
     font-weight: 800;
   }
 
   .t-d3 {
-    font-size: 15px;
+    /* Заголовок темы: по нему решают, что снимать сегодня. Поднято с 15px. */
+    font-size: 17px;
     line-height: 1.35;
     letter-spacing: -0.01em;
     font-weight: 700;
@@ -339,13 +344,13 @@
 
   /* Единственный размер, который не сжимается ниже 16px: это то, что копируют. */
   .t-content {
-    font-size: 14.5px;
+    font-size: 15px;
     line-height: 1.6;
     font-weight: 500;
   }
 
   .t-body-sm {
-    font-size: 13px;
+    font-size: 13.5px;
     line-height: 1.55;
   }
 
