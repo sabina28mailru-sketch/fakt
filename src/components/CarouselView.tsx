@@ -15,7 +15,7 @@ const COPY_BTN =
 
 /**
  * Кикер слайда. На инвертированной плашке (.ink-block) цвет наследуется от неё:
- * класс .t-kicker жёстко красит текст в --muted и на инверсии дал бы грязный контраст.
+ * класс .t-label жёстко красит текст в --muted и на инверсии дал бы грязный контраст.
  */
 function SlideKicker({ ink, children }: { ink: boolean; children: React.ReactNode }) {
   return (
@@ -85,7 +85,7 @@ export function CarouselView({ edition }: { edition: Edition }) {
 
       <div className="rule pt-5">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <span className="t-kicker">Подпись к посту · {caption.length} знаков</span>
+          <span className="t-label">Подпись к посту · {caption.length} знаков</span>
           <CopyButton text={caption} label="Копировать подпись" variant="ghost" />
         </div>
         <p className="t-content max-w-[72ch] whitespace-pre-line [text-wrap:pretty]">{caption}</p>

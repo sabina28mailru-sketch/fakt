@@ -127,7 +127,7 @@ export function StoriesView({ edition }: { edition: Edition }) {
                 {/* Инструкция по съёмке видна всегда — даже когда у кадра есть интерактив. */}
                 <div className="mt-auto flex flex-col gap-2 pt-5">
                   <p className="t-caption">
-                    <span className="t-kicker">На экране</span> {f.visual}
+                    <span className="t-label">На экране</span> {f.visual}
                   </p>
                   {interactive && (
                     <div className="mark flex flex-col items-start gap-1.5 text-accent">

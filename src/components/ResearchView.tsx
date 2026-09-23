@@ -310,7 +310,7 @@ export function ResearchView({
 
         {tags.length > 0 && (
           <div className="flex flex-wrap items-center gap-2">
-            <span className="t-kicker">Сохранённые темы</span>
+            <span className="t-label">Сохранённые темы</span>
             {tags.map((tag) => (
               <span
                 key={tag}
@@ -464,7 +464,7 @@ export function ResearchView({
                   className={cn("shrink-0 text-muted transition-transform", showRejected && "rotate-180")}
                   aria-hidden
                 />
-                <span className="t-kicker">
+                <span className="t-label">
                   Отбраковано: {result.rejected.length}{" "}
                   {plural(result.rejected.length, "материал", "материала", "материалов")}
                 </span>
@@ -572,7 +572,7 @@ function IntentBlock({ result }: { result: ResearchResult }) {
   return (
     <div className="panel-2 flex flex-col gap-2 p-4">
       <Toggle open={open} onToggle={() => setOpen((v) => !v)} label="Как система поняла запрос">
-        <span className="t-kicker shrink-0">Как я понял запрос</span>
+        <span className="t-label shrink-0">Как я понял запрос</span>
         <span className="t-body-sm min-w-0 flex-1 truncate text-fg-soft group-hover:text-fg">
           {result.intent.restated}
         </span>
@@ -582,12 +582,12 @@ function IntentBlock({ result }: { result: ResearchResult }) {
           <p className="t-body-sm text-fg">{result.intent.restated}</p>
           {result.intent.mustInclude.length > 0 && (
             <p className="t-body-sm text-muted">
-              <span className="t-kicker">Обязательно вместе</span> {result.intent.mustInclude.join(" + ")}
+              <span className="t-label">Обязательно вместе</span> {result.intent.mustInclude.join(" + ")}
             </p>
           )}
           {result.intent.notThis.length > 0 && (
             <p className="t-body-sm text-muted">
-              <span className="t-kicker">Не подменял на</span> {result.intent.notThis.join("; ")}
+              <span className="t-label">Не подменял на</span> {result.intent.notThis.join("; ")}
             </p>
           )}
           <p className="t-micro">
@@ -674,23 +674,23 @@ function MaterialCard({ material: m, index }: { material: ResearchMaterial; inde
 
       <Panel open={open}>
         <div className="flex flex-col gap-4 px-4 pb-4">
-          <p className="t-content max-w-[70ch] text-fg-soft">{m.summary}</p>
+          <p className="t-read max-w-[70ch] text-fg-soft">{m.summary}</p>
 
           {m.whyNow && (
             <p className="t-body-sm max-w-[70ch]">
-              <span className="t-kicker">Почему актуально</span> {m.whyNow}
+              <span className="t-label">Почему актуально</span> {m.whyNow}
             </p>
           )}
 
           {m.relation === "related" && m.relationNote && (
             <p className="t-body-sm max-w-[70ch] text-muted">
-              <span className="t-kicker">Связь с темой</span> {m.relationNote}
+              <span className="t-label">Связь с темой</span> {m.relationNote}
             </p>
           )}
 
           {m.facts.length > 0 && (
             <div className="flex flex-col gap-2">
-              <span className="t-kicker">Ключевые факты</span>
+              <span className="t-label">Ключевые факты</span>
               <ul className="flex flex-col gap-1.5">
                 {m.facts.map((f, i) => (
                   <li key={i} className="t-body-sm flex gap-2 text-fg">
@@ -704,7 +704,7 @@ function MaterialCard({ material: m, index }: { material: ResearchMaterial; inde
 
           {m.evidence && (
             <blockquote className="mark border-line">
-              <span className="t-kicker">Цитата со страницы</span>
+              <span className="t-label">Цитата со страницы</span>
               <p className="t-body-sm mt-1 text-fg-soft">«{m.evidence}»</p>
             </blockquote>
           )}
@@ -712,7 +712,7 @@ function MaterialCard({ material: m, index }: { material: ResearchMaterial; inde
           <CredibilityBlock credibility={m.credibility} confirmations={m.confirmations} freshness={m.freshness} />
 
           <div className="flex flex-col gap-2">
-            <span className="t-kicker">Источники</span>
+            <span className="t-label">Источники</span>
             <ul className="flex flex-col gap-1.5">
               <li className="flex flex-wrap items-baseline gap-x-2">
                 <Mark tone="accent">Прямая ссылка</Mark>
@@ -761,7 +761,7 @@ function CredibilityBlock({
     <div className="panel-2 flex flex-col gap-2 p-3">
       <Toggle open={open} onToggle={() => setOpen((v) => !v)} label="Из чего сложилась оценка достоверности">
         <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-1">
-          <span className="t-kicker">Достоверность</span>
+          <span className="t-label">Достоверность</span>
           <span className="t-stat text-fg">
             {c.score}
             <span className="text-muted">/100</span>
@@ -826,8 +826,8 @@ function AnswerBlock({
     <section className="card flex flex-col gap-4 p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 flex-col gap-1.5">
-          <span className="t-kicker">Ответ по теме</span>
-          <p className="t-content max-w-[70ch] text-fg">{answer.summary}</p>
+          <span className="t-label">Ответ по теме</span>
+          <p className="t-read max-w-[70ch] text-fg">{answer.summary}</p>
         </div>
         <CopyButton text={copyText} label="Копировать ответ" variant="ghost" size="sm" />
       </div>
@@ -868,7 +868,7 @@ function AnswerBlock({
       {answer.gaps.length > 0 && (
         <div className="rule flex flex-col gap-1.5 pt-3">
           <Toggle open={gapsOpen} onToggle={() => setGapsOpen((v) => !v)} label="Чего нет в найденных материалах">
-            <span className="t-kicker text-warn">Осталось без ответа: {answer.gaps.length}</span>
+            <span className="t-label text-warn">Осталось без ответа: {answer.gaps.length}</span>
           </Toggle>
           <Panel open={gapsOpen}>
             <ul className="flex flex-col gap-1 pt-1 pl-6">

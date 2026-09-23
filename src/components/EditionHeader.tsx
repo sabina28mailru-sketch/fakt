@@ -30,7 +30,7 @@ function Cell({
 }) {
   return (
     <div className={`flex min-w-0 flex-col gap-3 py-5 pr-4 ${className ?? ""}`}>
-      <span className="t-kicker">{kicker}</span>
+      <span className="t-label">{kicker}</span>
       {children}
     </div>
   );
@@ -118,7 +118,7 @@ export function EditionHeader({
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           {/* Рубрика бывает длиной в строку, поэтому это кикер с переносом, а не пилюля nowrap. */}
-          <span className="t-kicker min-w-0 leading-[1.5] break-words text-accent">
+          <span className="t-label min-w-0 leading-[1.5] break-words text-accent">
             {edition.weekday} · {edition.rubric}
           </span>
           <span className="t-stat inline-flex items-center gap-2 text-fg">
@@ -129,7 +129,7 @@ export function EditionHeader({
         </div>
 
         <div className="flex flex-col gap-3">
-          <div className="t-kicker">Тема дня</div>
+          <div className="t-label">Тема дня</div>
           <h1 className="t-d1 max-w-[22ch]">{edition.topic.title}</h1>
           <p className="t-lead">{edition.topic.whyNow}</p>
         </div>

@@ -138,7 +138,7 @@ export function DomainEditor({
 
       {!disabled && (
         <div className="flex flex-col gap-1.5">
-          <label htmlFor={inputId} className="t-kicker">
+          <label htmlFor={inputId} className="t-label">
             Добавить домен
           </label>
           <input

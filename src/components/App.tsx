@@ -475,7 +475,13 @@ function Shell({ initialEditions, initialSettings, initialTags, initialResearch,
           )}
 
           <main
-            className="@container mx-auto w-full max-w-[1120px] flex-1 px-4 pt-6 md:px-7 xl:px-10"
+            /*
+             * Колонка сужена с 1120px. Читаемый текст ограничен мерой в 66
+             * знаков (около 560px), и в широком контейнере он занимал левую
+             * половину, а справа оставалась пустота. 960 — ширина, при
+             * которой карточка и текстовая колонка выглядят одним блоком.
+             */
+            className="@container mx-auto w-full max-w-[960px] flex-1 px-4 pt-7 pb-4 md:px-7 xl:px-8"
             style={{ paddingBottom: "calc(var(--dock-h) + 80px)" }}
           >
             <AnimatePresence mode="wait" initial={false}>
@@ -505,7 +511,7 @@ function Shell({ initialEditions, initialSettings, initialTags, initialResearch,
                   ) : (
                     <div className="flex flex-col items-center gap-4 py-20 text-center">
                       <Newspaper size={30} className="text-muted" aria-hidden />
-                      <span className="t-kicker">Полоса пуста</span>
+                      <span className="t-label">Полоса пуста</span>
                       <h2 className="font-display text-[19px] leading-tight font-semibold">Выпусков пока нет</h2>
                       <p className="t-body-sm max-w-[46ch] text-muted">
                         Нажмите «Сгенерировать выпуск» — ресерч, проверка и три формата.

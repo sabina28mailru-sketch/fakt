@@ -86,7 +86,7 @@ export function FactsTable({ edition }: { edition: Edition }) {
                   key={h}
                   scope="col"
                   className={cn(
-                    "t-kicker border-b-2 border-line-strong px-4 py-3 text-[10px] tracking-[0.12em]",
+                    "t-label border-b-2 border-line-strong px-4 py-3 text-[10px] tracking-[0.12em]",
                     stickyHead && "sticky top-16 z-10 bg-bg",
                   )}
                 >

@@ -28,9 +28,9 @@ export function Section({
     <section id={id} className={cn("rule flex flex-col gap-6 pt-6", className)}>
       <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
         <div className="min-w-0">
-          {eyebrow && <div className="t-kicker mb-2">{eyebrow}</div>}
+          {eyebrow && <div className="t-label mb-2">{eyebrow}</div>}
           <h2 className="t-d2">{title}</h2>
-          {description && <p className="t-lead mt-2">{description}</p>}
+          {description && <p className="t-deck mt-2">{description}</p>}
         </div>
         {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </header>

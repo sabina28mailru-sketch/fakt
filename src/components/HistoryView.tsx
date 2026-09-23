@@ -153,7 +153,7 @@ export function HistoryView({
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
-      <dt className="t-kicker">{label}</dt>
+      <dt className="t-label">{label}</dt>
       <dd className="t-stat mt-2">{value}</dd>
     </div>
   );
@@ -164,7 +164,7 @@ function MonthRule({ date }: { date: string }) {
   const [y, m] = date.split("-").map(Number);
   const title = m ? `${MONTHS_RU_NOM[m - 1]} ${y}` : date;
   return (
-    <div className="t-kicker sticky top-[var(--bar-top)] z-10 flex h-8 items-center border-b border-line bg-bg">
+    <div className="t-label sticky top-[var(--bar-top)] z-10 flex h-8 items-center border-b border-line bg-bg">
       {title.toUpperCase()}
     </div>
   );

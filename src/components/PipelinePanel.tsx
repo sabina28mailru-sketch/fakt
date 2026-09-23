@@ -305,7 +305,7 @@ export function PipelinePanel({
       <div className="flex flex-col gap-5 px-4 pt-5 md:px-8 xl:px-12">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="t-kicker mb-2">{kicker}</div>
+            <div className="t-label mb-2">{kicker}</div>
             <h2 className="t-d2">{titleFor(state, preview)}</h2>
             <p className="t-body-sm mt-2 max-w-[62ch] text-muted">
               {preview

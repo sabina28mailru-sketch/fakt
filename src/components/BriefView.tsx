@@ -481,7 +481,7 @@ export function BriefView({
           aria-label="Разделы брифа"
           className="sticky top-24 hidden min-[1100px]:block"
         >
-          <div className="t-kicker mb-3">Разделы</div>
+          <div className="t-label mb-3">Разделы</div>
           <ul className="flex flex-col">
             {GROUPS.map((g) => {
               const on = active === g.id;
@@ -548,7 +548,7 @@ export function BriefView({
           >
             <div className="grid grid-cols-1 gap-x-8 gap-y-5 @min-[900px]:grid-cols-2">
               <label className="flex flex-col gap-1.5 @min-[900px]:col-span-2">
-                <span className="t-kicker">Модель</span>
+                <span className="t-label">Модель</span>
                 <input
                   id="model"
                   list="model-options"
@@ -568,7 +568,7 @@ export function BriefView({
               </label>
 
               <label className="flex flex-col gap-1.5">
-                <span className="t-kicker">Поисков на ресерч</span>
+                <span className="t-label">Поисков на ресерч</span>
                 <input
                   id="maxSearches"
                   type="number"
@@ -595,7 +595,7 @@ export function BriefView({
               </label>
 
               <label className="flex flex-col gap-1.5">
-                <span className="t-kicker">Страниц на проверку</span>
+                <span className="t-label">Страниц на проверку</span>
                 <input
                   id="maxFetches"
                   type="number"
@@ -622,7 +622,7 @@ export function BriefView({
               </label>
 
               <label className="flex flex-col gap-1.5 @min-[900px]:col-span-2">
-                <span className="t-kicker">Часовой пояс</span>
+                <span className="t-label">Часовой пояс</span>
                 <select
                   id="timezone"
                   className={cn(fieldCls, "font-mono text-[11.5px]", tzIssue && "border-bad focus:border-bad")}
@@ -645,7 +645,7 @@ export function BriefView({
               </label>
 
               <label className="flex flex-col gap-1.5 @min-[900px]:col-span-2">
-                <span className="t-kicker">Город для поиска</span>
+                <span className="t-label">Город для поиска</span>
                 <input
                   id="city"
                   className={cn(fieldCls, cityIssue && "border-bad focus:border-bad")}
@@ -698,7 +698,7 @@ export function BriefView({
                     key={i}
                     className="rule grid grid-cols-1 gap-2 py-4 @min-[620px]:grid-cols-[140px_minmax(0,1fr)] @min-[620px]:gap-4"
                   >
-                    <label htmlFor={`rubric-${i}`} className="t-kicker sm:pt-3">
+                    <label htmlFor={`rubric-${i}`} className="t-label sm:pt-3">
                       {WEEKDAYS_RU[(i + 1) % 7]}
                     </label>
                     <div className="flex min-w-0 flex-col gap-1.5">
@@ -754,7 +754,7 @@ export function BriefView({
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="t-kicker">Разрешённые домены</div>
+                  <div className="t-label">Разрешённые домены</div>
                   <p className="t-body-sm mt-1 max-w-[62ch] text-muted">
                     Это и есть настоящий фильтр: поиск идёт строго по этим адресам, всё остальное отбрасывается.
                   </p>
@@ -844,7 +844,7 @@ export function BriefView({
           {/* ---------- СВОДКА И СОХРАНЕНИЕ ---------- */}
           {!preview && changed.length > 0 && (
             <div className="rule flex flex-col gap-2 pt-4" aria-live="polite">
-              <span className="t-kicker">Перед сохранением</span>
+              <span className="t-label">Перед сохранением</span>
               <p className="t-body-sm text-fg-soft">
                 Изменено {changed.length} {fieldsWord(changed.length)}:
               </p>
@@ -861,14 +861,14 @@ export function BriefView({
           )}
 
           {preview ? (
-            <div className="rule t-kicker flex items-center gap-2 pt-4 text-muted">
+            <div className="rule t-label flex items-center gap-2 pt-4 text-muted">
               <Eye size={14} aria-hidden />
               Только чтение
             </div>
           ) : (
             <div className="rule sticky bottom-[var(--inset-b)] z-20 flex flex-wrap items-center justify-between gap-3 bg-bg/95 py-3 backdrop-blur">
               <div className="min-w-0">
-                <span className={cn("t-kicker", dirty ? "text-accent" : "text-muted")}>
+                <span className={cn("t-label", dirty ? "text-accent" : "text-muted")}>
                   {dirty ? `Изменено: ${changed.length} ${fieldsWord(changed.length)}` : "Изменений нет"}
                 </span>
                 {saveError && (

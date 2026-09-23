@@ -119,7 +119,7 @@ export function TopBar({
           <Wordmark />
         </div>
         <div className="hidden min-w-0 flex-col gap-1.5 lg:flex">
-          <span className="t-kicker">Сегодня</span>
+          <span className="t-label">Сегодня</span>
           <span className="t-meta truncate text-fg uppercase">
             {weekdayRu(date)}, {formatDateRu(date)}
           </span>

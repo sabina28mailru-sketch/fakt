@@ -34,7 +34,7 @@ export function Wordmark() {
       </span>
       <span className="flex min-w-0 flex-col leading-none">
         <span className="font-display text-[14px] leading-none font-semibold tracking-tight uppercase">Fakt</span>
-        <span className="t-kicker mt-1.5">Проверенный контент</span>
+        <span className="t-label mt-1.5">Проверенный контент</span>
       </span>
     </div>
   );
@@ -127,7 +127,7 @@ export function Nav({
 
         {status && (
           <div className="rule mt-8 pt-5">
-            <span className="t-kicker">Статус проверки</span>
+            <span className="t-label">Статус проверки</span>
             <p className="t-meta mt-3 text-fg uppercase">Выпуск за {status.date}</p>
             <p className="t-meta mt-1 text-muted uppercase">
               {status.total} {plural(status.total, "факт", "факта", "фактов")} · {status.high} высокая

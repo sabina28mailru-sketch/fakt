@@ -20,7 +20,7 @@ export function ExpertLens({ edition }: { edition: Edition }) {
           <FadeUp key={i} as="article" className="rule flex flex-col pt-5">
             {/* Врезка вместо иконки: цвет живёт в линейке, текст цитаты остаётся основным */}
             <blockquote className="mark flex-1 text-accent">
-              <p className="t-content text-fg">«{q.quote}»</p>
+              <p className="t-quote text-fg">«{q.quote}»</p>
             </blockquote>
             <footer className="rule mt-5 pt-3">
               <div className="text-[13px] font-bold">{q.name}</div>

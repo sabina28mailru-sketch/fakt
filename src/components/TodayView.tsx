@@ -152,7 +152,7 @@ function FormatBlock({
           <span className="flex min-w-0 flex-col gap-1">
             <span className="flex items-center gap-2">
               <Icon size={13} className="shrink-0 text-muted" aria-hidden />
-              <span className="t-kicker">{name}</span>
+              <span className="t-label">{name}</span>
             </span>
             <span className="t-body-sm text-fg-soft [text-wrap:pretty]">{idea}</span>
           </span>
@@ -176,13 +176,13 @@ function StoriesBody({ script }: { script: FeedScript }) {
         <li key={f.n} className="flex gap-3">
           <span className="t-meta w-6 shrink-0 pt-0.5 text-faint">{String(f.n).padStart(2, "0")}</span>
           <div className="min-w-0 flex-1">
-            <p className="t-content font-semibold! [text-wrap:pretty]">{f.text}</p>
+            <p className="t-content font-semibold!">{f.text}</p>
             <p className="t-caption mt-1.5">
-              <span className="t-kicker">На экране</span> {f.visual}
+              <span className="t-label">На экране</span> {f.visual}
             </p>
             {f.interactive && (
               <p className="t-caption mt-1 text-accent">
-                <span className="t-kicker">Интерактив</span> {f.interactive}
+                <span className="t-label">Интерактив</span> {f.interactive}
               </p>
             )}
           </div>
@@ -200,15 +200,15 @@ function CarouselBody({ script }: { script: FeedScript }) {
           <li key={s.n} className="flex gap-3">
             <span className="t-meta w-6 shrink-0 pt-0.5 text-faint">{String(s.n).padStart(2, "0")}</span>
             <div className="min-w-0 flex-1">
-              <p className="t-d3">{s.title}</p>
-              <p className="t-content mt-1 [text-wrap:pretty]">{s.body}</p>
+              <p className="t-h4">{s.title}</p>
+              <p className="t-content mt-1.5">{s.body}</p>
             </div>
           </li>
         ))}
       </ol>
       <div className="rule mt-4 pt-3">
-        <span className="t-kicker">Подпись к посту</span>
-        <p className="t-content mt-1.5 [text-wrap:pretty]">{script.carousel.caption}</p>
+        <span className="t-label">Подпись к посту</span>
+        <p className="t-content mt-2">{script.carousel.caption}</p>
       </div>
     </>
   );
@@ -218,7 +218,7 @@ function ReelBody({ script }: { script: FeedScript }) {
   return (
     <>
       <div className="mark border-l-2 border-accent pl-3">
-        <span className="t-kicker">Хук · первые 3 секунды</span>
+        <span className="t-label">Хук · первые 3 секунды</span>
         <p className="t-hook mt-1.5 [text-wrap:pretty]">{script.reel.hook}</p>
       </div>
       <ol className="mt-4 flex flex-col gap-2">
@@ -231,13 +231,13 @@ function ReelBody({ script }: { script: FeedScript }) {
       </ol>
       {script.reel.captions.length > 0 && (
         <p className="t-caption mt-3">
-          <span className="t-kicker">Надписи на экране</span> {script.reel.captions.join(" · ")}
+          <span className="t-label">Надписи на экране</span> {script.reel.captions.join(" · ")}
         </p>
       )}
       <div className="rule mt-4 pt-3">
-        <span className="t-kicker">Призыв</span>
+        <span className="t-label">Призыв</span>
         <p className="t-content mt-1.5">{script.reel.cta}</p>
-        <span className="t-kicker mt-3 block">Подпись к рилсу</span>
+        <span className="t-label mt-3 block">Подпись к рилсу</span>
         <p className="t-content mt-1.5 [text-wrap:pretty]">{script.reel.caption}</p>
       </div>
     </>
@@ -256,7 +256,7 @@ function GroundBlock({ topic }: { topic: FeedTopic }) {
         label={open ? "Свернуть основание темы" : "Развернуть основание темы"}
       >
         <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
-          <span className="t-kicker">Основание</span>
+          <span className="t-label">Основание</span>
           <Mark tone={scoreTone(topic.credibility.score)}>{topic.credibility.score}/100</Mark>
           <span className="t-micro text-faint">
             {topic.sources.length} {plural(topic.sources.length, "источник", "источника", "источников")}
@@ -267,9 +267,9 @@ function GroundBlock({ topic }: { topic: FeedTopic }) {
       <Panel open={open}>
         <div className="flex flex-col gap-4 pt-3 pb-1">
           {topic.evidence && (
-            <blockquote className="border-l-2 border-line-strong pl-3">
-              <span className="t-kicker">Подтверждение со страницы</span>
-              <p className="t-content mt-1.5 text-fg-soft italic [text-wrap:pretty]">«{topic.evidence}»</p>
+            <blockquote className="callout-quiet">
+              <span className="t-label">Подтверждение со страницы</span>
+              <p className="t-quote mt-2">«{topic.evidence}»</p>
             </blockquote>
           )}
 
@@ -282,7 +282,7 @@ function GroundBlock({ topic }: { topic: FeedTopic }) {
 
           {topic.facts.length > 0 && (
             <div>
-              <span className="t-kicker">Факты</span>
+              <span className="t-label">Факты</span>
               <ul className="mt-2 flex flex-col gap-2">
                 {topic.facts.map((f, i) => (
                   <li key={i}>
@@ -301,7 +301,7 @@ function GroundBlock({ topic }: { topic: FeedTopic }) {
           )}
 
           <div>
-            <span className="t-kicker">Источники</span>
+            <span className="t-label">Источники</span>
             <ul className="mt-2 flex flex-col gap-1.5">
               {topic.sources.map((s) => (
                 <li key={s.url} className="flex items-start gap-2">
@@ -323,7 +323,7 @@ function GroundBlock({ topic }: { topic: FeedTopic }) {
 
           {topic.mentions.length > 0 && (
             <div>
-              <span className="t-kicker">Названы на странице</span>
+              <span className="t-label">Названы на странице</span>
               <ul className="mt-2 flex flex-col gap-1">
                 {topic.mentions.map((m, i) => (
                   <li key={i} className="t-body-sm text-fg-soft">
@@ -341,7 +341,7 @@ function GroundBlock({ topic }: { topic: FeedTopic }) {
           )}
 
           <div>
-            <span className="t-kicker">Из чего сложился балл</span>
+            <span className="t-label">Из чего сложился балл</span>
             <ul className="mt-2 flex flex-col gap-1">
               {topic.credibility.reasons.map((r, i) => (
                 <li key={i} className="t-micro text-muted">
@@ -429,7 +429,7 @@ function TopicCard({
 }) {
   const Icon = KIND_ICON[topic.kind];
   return (
-    <FadeUp as="article" className="card flex flex-col gap-3 p-5">
+    <FadeUp as="article" className="card flex flex-col gap-4 p-6">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <span className="flex items-center gap-2.5">
           <span className="t-meta text-faint">Тема {String(index + 1).padStart(2, "0")}</span>
@@ -439,35 +439,38 @@ function TopicCard({
         <CopyButton text={feedTopicToText(topic)} label="Копировать тему целиком" variant="ghost" size="sm" />
       </div>
 
-      <h3 className="t-d3 [text-wrap:balance]">{topic.title}</h3>
+      <h3 className="t-d3">{topic.title}</h3>
 
-      {/* Разбор новости — главное содержимое карточки. Ради него и заходят. */}
-      {topic.summary && <p className="t-content text-fg-soft [text-wrap:pretty]">{topic.summary}</p>}
+      {/* Лид: первый абзац разбора набран серифом и крупнее остального —
+          так глаз сразу видит, где начинается текст для чтения. */}
+      {topic.summary && <p className="t-lead">{topic.summary}</p>}
 
+      {/* Ключевые детали — не абзацем, а списком с вынесенным маркером:
+          структура видна раньше, чем человек начнёт читать. */}
       {topic.details.length > 0 && (
-        <ul className="flex flex-col gap-1.5">
-          {topic.details.map((d, i) => (
-            <li key={i} className="t-body-sm flex gap-2 text-fg-soft [text-wrap:pretty]">
-              <span className="mt-[7px] size-[4px] shrink-0 rounded-full bg-muted" aria-hidden />
-              <span className="min-w-0">{d}</span>
-            </li>
-          ))}
-        </ul>
+        <div className="rule pt-4">
+          <span className="t-label">Детали</span>
+          <ul className="points mt-2.5">
+            {topic.details.map((d, i) => (
+              <li key={i}>{d}</li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {topic.soWhat && (
-        <p className="t-body-sm mark border-l-2 border-accent pl-3 text-fg [text-wrap:pretty]">
-          <span className="t-kicker block">Что это значит</span>
-          {topic.soWhat}
-        </p>
+        <div className="callout mt-1">
+          <span className="t-label">Что это значит</span>
+          <p className="t-read mt-1.5">{topic.soWhat}</p>
+        </div>
       )}
 
       {topic.unverified.length > 0 && (
-        <div role="alert" className="mark border-l-2 border-bad bg-bad-soft px-3 py-2.5">
+        <div role="alert" className="border-l-2 border-bad pl-3.5">
           <Mark tone="bad">Проверьте перед публикацией</Mark>
-          <ul className="mt-2 flex flex-col gap-1">
+          <ul className="stack-tight mt-2">
             {topic.unverified.map((u, i) => (
-              <li key={i} className="t-body-sm text-fg [text-wrap:pretty]">
+              <li key={i} className="t-body-sm text-fg">
                 {u}
               </li>
             ))}
@@ -475,19 +478,23 @@ function TopicCard({
         </div>
       )}
 
-      <div className="flex flex-col gap-1.5">
-        <p className="t-body-sm text-muted [text-wrap:pretty]">
-          <span className="t-kicker">Почему сейчас</span> {topic.whyNow}
-        </p>
-        <p className="t-body-sm text-muted [text-wrap:pretty]">
-          <span className="t-kicker">Угол</span> {topic.angle}
-        </p>
+      {/* Служебные пояснения — сеткой «подпись → значение». На широком
+          экране подписи стоят колонкой, и глаз бежит по ним вертикально,
+          не перечитывая текст рядом. */}
+      <dl className="facts-grid rule pt-4">
+        <dt className="t-label">Почему сейчас</dt>
+        <dd className="t-body-sm text-fg-soft">{topic.whyNow}</dd>
+
+        <dt className="t-label">Угол</dt>
+        <dd className="t-body-sm text-fg-soft">{topic.angle}</dd>
+
         {topic.audienceQuestion && (
-          <p className="t-body-sm text-muted [text-wrap:pretty]">
-            <span className="t-kicker">Вопрос аудитории</span> {topic.audienceQuestion}
-          </p>
+          <>
+            <dt className="t-label">Вопрос аудитории</dt>
+            <dd className="t-body-sm text-fg-soft">{topic.audienceQuestion}</dd>
+          </>
         )}
-      </div>
+      </dl>
 
       <div className="mt-1 flex flex-col">
         <GroundBlock topic={topic} />
@@ -670,7 +677,7 @@ export function TodayView({
         <DayStrip feeds={feeds} shown={feed?.date} today={date} onPick={onPickDate} />
         <div className="flex flex-col items-center gap-4 py-16 text-center">
         <Sparkles size={30} className="text-muted" aria-hidden />
-        <span className="t-kicker">{formatDateRu(date)}</span>
+        <span className="t-label">{formatDateRu(date)}</span>
         <h2 className="font-display text-[19px] leading-tight font-semibold">
           {running ? "Собираю ленту на сегодня" : "Ленты на сегодня ещё нет"}
         </h2>
@@ -695,9 +702,9 @@ export function TodayView({
       <DayStrip feeds={feeds} shown={feed.date} today={date} onPick={onPickDate} />
       <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
         <div className="min-w-0">
-          <div className="t-kicker mb-2">Лента дня</div>
+          <div className="t-label mb-2">Лента дня</div>
           <h1 className="t-d1">{formatDateRu(feed.date)}</h1>
-          <p className="t-lead mt-2">
+          <p className="t-deck mt-2">
             {feed.weekday} · {feed.topics.length} {plural(feed.topics.length, "тема", "темы", "тем")} · по три формата
             на каждую
           </p>

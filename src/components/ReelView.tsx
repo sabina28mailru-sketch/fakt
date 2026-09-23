@@ -35,7 +35,7 @@ export function ReelView({ edition }: { edition: Edition }) {
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <Clapperboard size={16} className="text-accent" aria-hidden />
-                <span className="t-kicker">Хук · 0:00–0:03</span>
+                <span className="t-label">Хук · 0:00–0:03</span>
               </div>
               <p className="t-hook mt-2 max-w-[24ch] [text-wrap:balance]">{hook}</p>
             </div>
@@ -73,7 +73,7 @@ export function ReelView({ edition }: { edition: Edition }) {
 
         <div className="flex flex-col gap-6 min-[1100px]:sticky min-[1100px]:top-[120px] min-[1100px]:self-start">
           <div className="rule pt-5">
-            <div className="t-kicker mb-3">Надписи на экране</div>
+            <div className="t-label mb-3">Надписи на экране</div>
             <ul className="flex flex-col gap-2">
               {captions.map((c, i) => (
                 <li key={i} className="t-body-sm grid grid-cols-[14px_minmax(0,1fr)] gap-1">
@@ -87,13 +87,13 @@ export function ReelView({ edition }: { edition: Edition }) {
           </div>
 
           <div className="rule pt-5">
-            <div className="t-kicker mb-3">Финальный призыв</div>
+            <div className="t-label mb-3">Финальный призыв</div>
             <p className="t-content font-semibold!">{cta}</p>
           </div>
 
           <div className="rule pt-5">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-              <span className="t-kicker">Подпись к рилсу</span>
+              <span className="t-label">Подпись к рилсу</span>
               <CopyButton text={caption} label="Копировать" variant="ghost" />
             </div>
             <p className="t-body-sm max-w-[62ch] whitespace-pre-line text-muted">{caption}</p>
