@@ -23,7 +23,7 @@ import {
   siftRotation,
   writeRotation,
 } from "./model";
-import { openPages, tavilySearchMany, type SearchHit } from "./search";
+import { openLogKind, openPages, tavilySearchMany, type SearchHit } from "./search";
 import { ageInDays, freshnessOf, scoreCredibility, type CredibilitySignals } from "./credibility";
 import { conceptInText, evidenceInText, titleOverlap, words } from "./text-match";
 import {
@@ -140,12 +140,12 @@ function extractJson(text: string): unknown {
   const start = candidate.indexOf("{");
   const end = candidate.lastIndexOf("}");
   if (start === -1 || end === -1) {
-    throw new Error(`В ответе модели нет JSON-объекта. Начало ответа: ${text.slice(0, 200)}`);
+    throw new Error("Модель ответила не в том формате. Обычно помогает повтор, а если повторяется — другая модель в разделе «Бриф».");
   }
   try {
     return JSON.parse(candidate.slice(start, end + 1));
   } catch {
-    throw new Error(`Ответ модели оборвался и не разобрался как JSON. Начало: ${text.slice(0, 200)}`);
+    throw new Error("Ответ модели оборвался на середине. Стоит повторить прогон.");
   }
 }
 
@@ -304,7 +304,7 @@ export async function* runFeed(opts: FeedOptions): AsyncGenerator<FeedEvent> {
       }
     }
     if (!planned.length) {
-      throw new Error(`Модель не предложила ни одного поискового запроса. Начало ответа: ${agenda.text.slice(0, 200)}`);
+      throw new Error("Модель не предложила ни одного поискового запроса. Стоит повторить прогон.");
     }
     // При доборе ищем только по нужным типам: остальные запросы стоили бы
     // кредитов Tavily впустую. Если модель не дала ни одного запроса нужного
@@ -374,7 +374,7 @@ export async function* runFeed(opts: FeedOptions): AsyncGenerator<FeedEvent> {
       key,
       candidates.map((c) => c.url),
       (kind, text) => {
-        openLogs.push({ type: "log", kind, text });
+        openLogs.push({ type: "log", kind: openLogKind(kind), text });
       },
     );
     for (const line of openLogs) yield line;
@@ -471,7 +471,7 @@ export async function* runFeed(opts: FeedOptions): AsyncGenerator<FeedEvent> {
       pending.delete(ci);
       readyChunks++;
       modelCalls += res.calls;
-      if (res.note) yield { type: "log", kind: "result", text: res.note };
+      if (res.note) yield { type: "log", kind: "tech", text: res.note };
       if (Array.isArray(res.items)) rawItems.push(...res.items);
       else if (res.error) yield { type: "log", kind: "warn", text: `Пачка страниц не разобралась: ${res.error}` };
       yield {

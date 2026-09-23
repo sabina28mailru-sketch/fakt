@@ -16,12 +16,12 @@ import {
 import {
   askFirstAvailable,
   describeModelError,
-  rotationFor,
+  geminiRotation,
   siftRotation,
   writeRotation,
   type ModelAnswer,
 } from "./model";
-import { openPages, tavilySearch, type SearchHit } from "./search";
+import { openLogKind, openPages, tavilySearch, type SearchHit } from "./search";
 import { BUCKETS, type SourceBucket } from "./sources";
 import { addUsage, nextEditionId, saveEdition } from "./store";
 import { verifyEdition } from "./verify-edition";
@@ -146,7 +146,7 @@ export async function* runPipeline(opts: PipelineOptions): AsyncGenerator<Pipeli
    * остаётся на Gemini, потому что именно его голосом владелец публикует.
    */
   const mechanical = siftRotation(settings.model);
-  const geminiOnly = rotationFor(settings.model).map((m) => ({ provider: "gemini" as const, model: m }));
+  const geminiOnly = geminiRotation(settings.model);
   const forWriting = writeRotation(settings.model, 0);
   const startedAt = Date.now();
   const weekday = weekdayRu(date);
@@ -273,7 +273,7 @@ export async function* runPipeline(opts: PipelineOptions): AsyncGenerator<Pipeli
           wake = null;
         };
         const pending = openPages(searchKey, urls, (kind, text) => {
-          emit({ type: "log", kind, text });
+          emit({ type: "log", kind: openLogKind(kind), text });
           // kind === "result" — это строки «Открыто: …» и «Открыто через Tavily: …».
           if (kind === "result") {
             openedCount += 1;

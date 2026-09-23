@@ -11,7 +11,7 @@ import {
   type Settings,
   type SourceKind,
 } from "./schema";
-import { openPages, tavilySearchMany, type SearchHit } from "./search";
+import { openLogKind, openPages, tavilySearchMany, type SearchHit } from "./search";
 import { ageInDays, freshnessOf, scoreCredibility, type CredibilitySignals } from "./credibility";
 import { askFast, askRef, describeModelError, lanesFor, refLabel, siftRotation } from "./model";
 import { hostOf } from "./utils";
@@ -80,13 +80,13 @@ function extractJson(text: string): unknown {
   const start = candidate.indexOf("{");
   const end = candidate.lastIndexOf("}");
   if (start === -1 || end === -1) {
-    throw new Error(`В ответе модели нет JSON-объекта. Начало ответа: ${text.slice(0, 200)}`);
+    throw new Error("Модель ответила не в том формате. Обычно помогает повтор, а если повторяется — другая модель в разделе «Бриф».");
   }
   try {
     return JSON.parse(candidate.slice(start, end + 1));
   } catch {
     // Обрыв по лимиту токенов выглядит именно так: скобки есть, а структура битая.
-    throw new Error(`Ответ модели оборвался и не разобрался как JSON. Начало: ${text.slice(0, 200)}`);
+    throw new Error("Ответ модели оборвался на середине. Стоит повторить прогон.");
   }
 }
 
@@ -283,7 +283,7 @@ export async function* runResearch(opts: ResearchOptions): AsyncGenerator<Resear
     const queries = parseStrings(rawIntent.queries, 12);
     if (!queries.length) {
       throw new Error(
-        `Модель не предложила ни одного поискового запроса. Начало ответа: ${intentAnswer.text.slice(0, 200)}`,
+        "Модель не предложила ни одного поискового запроса. Стоит повторить прогон.",
       );
     }
 
@@ -327,11 +327,12 @@ export async function* runResearch(opts: ResearchOptions): AsyncGenerator<Resear
           hits.set(hit.url, hit);
           fresh++;
         }
-        const hosts = [...new Set(out.hits.map((h) => hostOf(h.url)))].slice(0, 4);
+        // Без перечня доменов: каждый источник и так показан в результате
+        // ссылкой, а здесь четыре адреса на строку превращали лог в стену.
         lines.push({
           type: "log",
           kind: fresh ? "result" : "warn",
-          text: fresh ? `«${out.query}» → ${fresh} новых · ${hosts.join(", ")}` : `«${out.query}» → ничего нового`,
+          text: fresh ? `«${out.query}» → ${fresh} новых` : `«${out.query}» → ничего нового`,
         });
       }
       return lines;
@@ -377,7 +378,7 @@ export async function* runResearch(opts: ResearchOptions): AsyncGenerator<Resear
 
     const logs: ResearchEvent[] = [];
     const opened = await openPages(searchKey, candidates.map((c) => c.url), (kind, text) => {
-      logs.push({ type: "log", kind, text });
+      logs.push({ type: "log", kind: openLogKind(kind), text });
     });
     for (const log of logs) yield log;
     credits += opened.credits;
@@ -487,7 +488,7 @@ export async function* runResearch(opts: ResearchOptions): AsyncGenerator<Resear
       );
       pending.delete(ci);
       readyChunks++;
-      if (res.note) yield { type: "log", kind: "result", text: res.note };
+      if (res.note) yield { type: "log", kind: "tech", text: res.note };
       if (Array.isArray(res.items)) items.push(...res.items);
       else if (res.error) yield { type: "log", kind: "warn", text: `Пачка страниц не разобралась: ${res.error}` };
       yield {

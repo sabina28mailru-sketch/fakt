@@ -6,6 +6,8 @@
  * а если издание режет ботов или страница рисуется скриптом — Tavily /extract.
  */
 
+import { pageError, searchError } from "./errors";
+
 const SEARCH_URL = "https://api.tavily.com/search";
 const EXTRACT_URL = "https://api.tavily.com/extract";
 
@@ -128,8 +130,12 @@ export async function tavilySearch(
       body: JSON.stringify(body),
     });
     if (!res.ok) {
-      const text = (await res.text()).slice(0, 300);
-      throw new Error(`Tavily ответил ${res.status}: ${text}`);
+      // Тело ответа не читаем: в лог оно попадало простынёй JSON, а к коду
+      // состояния ничего не добавляло. Статус кладём в объект — по нему
+      // withRetry решает, есть ли смысл повторять.
+      const err = new Error(searchError(res.status)) as Error & { status: number };
+      err.status = res.status;
+      throw err;
     }
     return (await res.json()) as {
       results?: { title?: string; url?: string; content?: string; published_date?: string }[];
@@ -240,7 +246,11 @@ async function extractPages(
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({ urls, extract_depth: "advanced", include_usage: true }),
       });
-      if (!res.ok) throw new Error(`Tavily extract ответил ${res.status}`);
+      if (!res.ok) {
+        const err = new Error(searchError(res.status)) as Error & { status: number };
+        err.status = res.status;
+        throw err;
+      }
       return (await res.json()) as {
         results?: { url?: string; raw_content?: string }[];
         failed_results?: { url?: string; error?: string }[];
@@ -252,12 +262,28 @@ async function extractPages(
       if (r.url && r.raw_content) pages.set(r.url, htmlToText(r.raw_content));
     }
     for (const f of data.failed_results ?? []) {
-      if (f.url) failed.set(f.url, f.error ?? "не удалось извлечь");
+      // Причины приходят по-английски от чужого сервиса; переводим здесь,
+      // чтобы дальше по коду ходила уже человеческая формулировка.
+      if (f.url) failed.set(f.url, f.error ? pageError(f.error) : "не открылась");
     }
   } catch (e) {
-    for (const url of urls) failed.set(url, errText(e));
+    for (const url of urls) failed.set(url, pageError(errText(e)));
   }
   return { pages, failed, credits };
+}
+
+/**
+ * Как показывать строку открытия страниц.
+ *
+ * Их десятки: «Открываю 10 страниц разом», затем по строке на каждый сайт.
+ * Для владельца это шум — какие именно источники пошли в дело, видно в
+ * результате, по ссылкам. Поэтому всё, кроме неудач, уходит в технические
+ * строки: они остаются доступны, но не закрывают собой ход работы.
+ *
+ * Неудача — другое дело: она объясняет, почему источников меньше ожидаемого.
+ */
+export function openLogKind(kind: "fetch" | "result" | "warn"): "warn" | "tech" {
+  return kind === "warn" ? "warn" : "tech";
 }
 
 /**

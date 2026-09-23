@@ -157,7 +157,7 @@ export type StepId = "research" | "verify" | "write" | "validate" | "save";
 
 export type PipelineEvent =
   | { type: "step"; step: StepId; status: "running" | "done" | "error"; detail?: string }
-  | { type: "log"; kind: "search" | "fetch" | "result" | "info" | "warn"; text: string }
+  | { type: "log"; kind: "search" | "fetch" | "result" | "info" | "warn" | "tech"; text: string }
   | { type: "done"; edition: Edition }
   | { type: "error"; message: string };
 
@@ -298,7 +298,7 @@ export type ResearchStepId = "intent" | "search" | "open" | "judge" | "answer";
 
 export type ResearchEvent =
   | { type: "step"; step: ResearchStepId; status: "running" | "done" | "error"; detail?: string }
-  | { type: "log"; kind: "search" | "fetch" | "result" | "info" | "warn"; text: string }
+  | { type: "log"; kind: "search" | "fetch" | "result" | "info" | "warn" | "tech"; text: string }
   | { type: "done"; result: ResearchResult }
   | { type: "error"; message: string };
 
@@ -497,7 +497,7 @@ export type FeedStepId = "agenda" | "search" | "open" | "select" | "write";
 
 export type FeedEvent =
   | { type: "step"; step: FeedStepId; status: "running" | "done" | "error"; detail?: string }
-  | { type: "log"; kind: "search" | "fetch" | "result" | "info" | "warn"; text: string }
+  | { type: "log"; kind: "search" | "fetch" | "result" | "info" | "warn" | "tech"; text: string }
   | { type: "topic"; topic: FeedTopic }
   | { type: "done"; feed: DailyFeed }
   | { type: "error"; message: string };

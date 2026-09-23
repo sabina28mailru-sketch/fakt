@@ -123,41 +123,38 @@ export async function askFast(
   }
 }
 
-const DAY_QUOTA_HINT =
-  "Суточная квота этой модели исчерпана. На бесплатном тарифе лимит считается отдельно по каждой модели " +
-  `(у флагманских — 20 запросов в сутки, у ${FAST_MODEL} — на порядок больше). ` +
-  "Смените модель в разделе «Бриф» — у соседней квота своя и, скорее всего, цела. Текущие лимиты: ai.dev/rate-limit";
+/*
+ * Коротко — потому что эта строка чаще всего видна не в одиночестве, а
+ * внутри строки лога, и занимала там четыре предложения. Очередь к этому
+ * моменту уже сама перешла к следующей модели; звать человека что-то
+ * менять значило бы поднимать его чинить работающее.
+ */
+const DAY_QUOTA_HINT = "суточная квота модели исчерпана (на бесплатном тарифе — 20 запросов в сутки на каждую)";
 
-const MINUTE_QUOTA_HINT =
-  "Модель упёрлась в минутный лимит бесплатного тарифа. Подождите минуту и повторите — " +
-  "суточная квота при этом не тронута.";
+const MINUTE_QUOTA_HINT = "минутный лимит бесплатного тарифа, суточная квота при этом цела";
 
 export function describeModelError(e: unknown): string {
   if (!(e instanceof Error)) return String(e);
   const status = statusOf(e);
   const text = e.message;
 
-  // Провайдеров теперь несколько, и совет «смените модель в разделе Бриф»
-  // относится только к Gemini. Для Groq он был бы ложным следом: там
-  // ограничение минутное и проходит само.
-  if (/qwen|gpt-oss/i.test(text)) {
-    if (status === 429 || status === 413) return `Groq, минутный лимит: ${text}`;
-    return `Groq не ответил: ${text}`;
-  }
+  // У Groq сообщение уже собрано по-человечески там, где возникло:
+  // провайдер и причина названы, добавлять нечего.
+  if (/qwen|gpt-oss/i.test(text)) return text;
 
   if (status === 401 || status === 403 || (status === 400 && /api[\s_-]?key/i.test(text))) {
-    return `Ключ API не принят. Проверьте GEMINI_API_KEY в .env.local. Ответ API: ${text}`;
+    return "ключ GEMINI_API_KEY не принят — проверьте его в настройках проекта или в .env.local";
   }
   if (status === 429 || /too_many_requests|exceeded your current quota|RESOURCE_EXHAUSTED/i.test(text)) {
     // Минутный лимит проходит сам, суточный — нет. Совет обязан их различать:
     // «подождите минуту» при выбранной суточной квоте отправляет ждать впустую.
     return isDailyQuota(e) || !/per[\s_-]?minute/i.test(text) ? DAY_QUOTA_HINT : MINUTE_QUOTA_HINT;
   }
-  if (status === 404) return `Модель не найдена (404). Смените модель в разделе «Бриф». Ответ API: ${text}`;
+  if (status === 404) return "такой модели нет — проверьте название в разделе «Бриф»";
   if (e instanceof ApiError === false && /unusable|fetch failed|ECONNRESET|timeout/i.test(text)) {
-    return `Сеть оборвалась: ${text}. Повторы уже встроены — если повторяется, проверьте подключение.`;
+    return "связь оборвалась; повторы уже встроены, но если повторяется — проверьте подключение";
   }
-  if (status) return `Ошибка API (${status}): ${text}`;
+  if (status) return `модель ответила отказом (код ${status})`;
   return text;
 }
 
@@ -212,12 +209,18 @@ async function askOpenAiCompatible(url: string, apiKey: string, model: string, p
     }),
   });
   if (!res.ok) {
-    const body = (await res.text()).slice(0, 300);
-    // Статус кладём в объект: describeModelError читает его так же, как у Gemini.
+    // Тело ответа не показываем: в логе оно разворачивалось JSON на пол-экрана,
+    // а к коду состояния не добавляло ничего. Статус кладём в объект —
+    // describeModelError читает его так же, как у Gemini.
     // 413 у Groq — не «слишком длинный запрос» вообще, а лимит на токены
     // в минуту. Формулировка провайдера сбивает с толку, поясняем.
-    const what = res.status === 413 ? "упёрлась в лимит токенов в минуту" : `ответила ${res.status}`;
-    const err = new Error(`${model} ${what}: ${body}`) as Error & { status: number };
+    const what =
+      res.status === 413 || res.status === 429
+        ? "упёрлась в минутный лимит токенов"
+        : res.status === 401 || res.status === 403
+          ? "не приняла ключ GROQ_API_KEY"
+          : `ответила отказом (код ${res.status})`;
+    const err = new Error(`${model} ${what}`) as Error & { status: number };
     err.status = res.status;
     throw err;
   }

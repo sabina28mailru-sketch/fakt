@@ -12,7 +12,7 @@ import {
   TriangleAlert,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   Credibility,
   Edition,
@@ -52,7 +52,9 @@ const emptySteps = (): Steps => ({
 
 interface LogLine {
   id: number;
-  kind: "search" | "fetch" | "result" | "info" | "warn";
+  // Виды берём из самого события, а не повторяем список: дубликат уже
+  // однажды разошёлся с оригиналом и молча ронял сборку.
+  kind: Extract<ResearchEvent, { type: "log" }>["kind"];
   text: string;
 }
 
@@ -62,6 +64,7 @@ const KIND_COLOR: Record<LogLine["kind"], string> = {
   result: "text-muted",
   info: "text-fg",
   warn: "text-warn",
+  tech: "text-faint",
 };
 
 const FRESHNESS_LABEL: Record<ResearchMaterial["freshness"], string> = {
@@ -96,6 +99,14 @@ export function ResearchView({
   const [running, setRunning] = useState(false);
   const [steps, setSteps] = useState<Steps>(emptySteps);
   const [logs, setLogs] = useState<LogLine[]>([]);
+  /*
+   * Технические строки скрыты по умолчанию: открытие каждой страницы и
+   * время разбора каждой пачки — это десятки строк, за которыми переставал
+   * быть виден собственно ход работы. Не выброшены, а убраны под кнопку.
+   */
+  const [showTech, setShowTech] = useState(false);
+  const shownLogs = useMemo(() => (showTech ? logs : logs.filter((l) => l.kind !== "tech")), [logs, showTech]);
+  const techCount = useMemo(() => logs.filter((l) => l.kind === "tech").length, [logs]);
   const [result, setResult] = useState<ResearchResult | undefined>(initialResult);
   const [error, setError] = useState("");
   const [showRejected, setShowRejected] = useState(false);
@@ -382,18 +393,27 @@ export function ResearchView({
                 </div>
               )}
 
-              {logs.length > 0 && (
+              {shownLogs.length > 0 && (
                 <div
                   ref={logRef}
                   className="thin-scroll panel-2 max-h-64 overflow-y-auto p-3"
                   role="log"
                   aria-label="Ход исследования"
                 >
-                  {logs.map((l) => (
+                  {shownLogs.map((l) => (
                     <div key={l.id} className={cn("t-log", KIND_COLOR[l.kind])}>
                       {l.text}
                     </div>
                   ))}
+                  {techCount > 0 && (
+                    <button
+                      type="button"
+                      className="t-log mt-1 text-faint underline underline-offset-2 hover:text-muted"
+                      onClick={() => setShowTech((v) => !v)}
+                    >
+                      {showTech ? "скрыть технические строки" : `показать технические строки (${techCount})`}
+                    </button>
+                  )}
                 </div>
               )}
             </div>

@@ -50,6 +50,7 @@ const LOG_KINDS: { kind: LogKind; label: string }[] = [
   { kind: "result", label: "Найдено" },
   { kind: "info", label: "Ход работы" },
   { kind: "warn", label: "Предупреждения" },
+  { kind: "tech", label: "Техническое" },
 ];
 
 const KIND_COLOR: Record<LogKind, string> = {
@@ -58,14 +59,22 @@ const KIND_COLOR: Record<LogKind, string> = {
   result: "text-muted",
   info: "text-fg",
   warn: "text-warn",
+  tech: "text-faint",
 };
 
+/*
+ * Что показываем сразу. Технические строки выключены намеренно: их
+ * больше, чем всех остальных вместе, и за перечнем открытых доменов и
+ * времени разбора каждой пачки переставало быть видно, что вообще
+ * происходит. Они никуда не делись — одно нажатие, и они здесь.
+ */
 const ALL_VISIBLE: Record<LogKind, boolean> = {
   search: true,
   fetch: true,
   result: true,
   info: true,
   warn: true,
+  tech: false,
 };
 
 function clock(at: number) {
@@ -208,7 +217,7 @@ export function PipelinePanel({
   const [unseen, setUnseen] = useState(0);
 
   const counts = useMemo(() => {
-    const acc: Record<LogKind, number> = { search: 0, fetch: 0, result: 0, info: 0, warn: 0 };
+    const acc: Record<LogKind, number> = { search: 0, fetch: 0, result: 0, info: 0, warn: 0, tech: 0 };
     for (const l of state.logs) acc[l.kind] += 1;
     return acc;
   }, [state.logs]);

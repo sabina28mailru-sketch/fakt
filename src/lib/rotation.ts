@@ -53,23 +53,67 @@ export function hasGroq(): boolean {
 }
 
 /**
- * Ротация Gemini, начинающаяся с выбранной пользователем модели. Его выбор
+ * Имя модели из брифа — в ссылку на провайдера.
+ *
+ * Владелец выбирает модель сам, и выбор не должен ограничиваться Gemini:
+ * когда суточная квота выбрана, а поработать надо сегодня, Groq — это
+ * ровно тот запас, ради которого он и подключался. Раньше поле брифа
+ * молча считалось именем Gemini, и вписать туда Groq было нельзя.
+ *
+ * Пишется так же, как видно в логе: groq/gpt-oss-120b. Полный путь
+ * провайдера (openai/gpt-oss-120b) тоже понимаем — вдруг скопируют
+ * из документации Groq.
+ */
+export function refFromName(name: string): ModelRef {
+  const clean = name.trim().replace(/^groq\//i, "");
+  const groq = GROQ_MODELS.find((m) => m === clean || m.split("/").pop() === clean);
+  return groq ? { provider: "groq", model: groq } : { provider: "gemini", model: name.trim() };
+}
+
+/** Что предложить в брифе. Порядок — от сильного слога к большому запасу. */
+export function modelChoices(): string[] {
+  return [...FLASH_MODELS, FAST_MODEL, ...GROQ_MODELS.map((m) => `groq/${m.split("/").pop()}`)];
+}
+
+/**
+ * Ротация, начинающаяся с выбранной пользователем модели. Его выбор
  * из брифа обязан идти первым, остальные — запасные карманы квоты.
  */
-export function rotationFor(model: string): string[] {
-  /*
-   * Лёгкая модель замыкает очередь, а не стоит в стороне.
-   *
-   * Её тут не было, и это стоило прогонов: у флагманских flash суточная
-   * квота 20 запросов на каждую, а у lite — на порядок больше. Когда все
-   * четыре flash выбраны, lite почти наверняка ещё жива, и шаг с большим
-   * входом, который Groq не возьмёт по лимиту токенов в минуту, ей вполне
-   * по силам: контекст у неё тот же.
-   *
-   * Последней, потому что русский слог у неё слабее: пока есть flash,
-   * пишет flash.
-   */
-  return [model, ...FLASH_MODELS.filter((m) => m !== model), FAST_MODEL];
+export function rotationFor(name: string): ModelRef[] {
+  const chosen = refFromName(name);
+  const gemini = geminiTail(chosen);
+  if (chosen.provider === "groq") {
+    // Выбран Groq: он первым, за ним второй Groq, дальше весь Gemini.
+    // Смысл выбора — «квота Gemini кончилась», и возвращаться к ней сразу
+    // после первой же неудачи значило бы не услышать этот выбор.
+    const otherGroq = groqRefs().filter((r) => r.model !== chosen.model);
+    return [chosen, ...otherGroq, ...gemini];
+  }
+  return [chosen, ...gemini];
+}
+
+/** Остальные модели Gemini: флагманские по порядку, лёгкая замыкающей. */
+function geminiTail(chosen: ModelRef): ModelRef[] {
+  const flash = FLASH_MODELS.filter((m) => !(chosen.provider === "gemini" && m === chosen.model));
+  return [...flash, FAST_MODEL].map((m) => ({ provider: "gemini" as const, model: m }));
+}
+
+/** Только Gemini: для шагов с длинным входом, который Groq не возьмёт по лимиту токенов. */
+export function geminiRotation(name: string): ModelRef[] {
+  const chosen = refFromName(name);
+  if (chosen.provider === "groq") return geminiTail(chosen);
+  return [chosen, ...geminiTail(chosen)];
+}
+
+/** Один и тот же вызов дважды — потраченная впустую попытка из отведённых. */
+function dedupe(refs: ModelRef[]): ModelRef[] {
+  const seen = new Set<string>();
+  return refs.filter((r) => {
+    const key = `${r.provider}:${r.model}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function groqRefs(): ModelRef[] {
@@ -81,8 +125,11 @@ function groqRefs(): ModelRef[] {
  * порядка больше, а на замере пачка разбиралась секунды вместо минут.
  * Gemini остаётся в хвосте на случай, если ключа Groq нет или он отказал.
  */
-export function siftRotation(model: string): ModelRef[] {
-  return [...groqRefs(), ...rotationFor(model).map((m) => ({ provider: "gemini" as const, model: m }))];
+export function siftRotation(name: string): ModelRef[] {
+  // Выбор владельца уважаем: если он сам назвал Groq, очередь уже начинается
+  // с него, и подставлять свой порядок поверх его решения незачем.
+  if (refFromName(name).provider === "groq") return rotationFor(name);
+  return dedupe([...groqRefs(), ...rotationFor(name)]);
 }
 
 /**
@@ -90,8 +137,11 @@ export function siftRotation(model: string): ModelRef[] {
  * владельца пишет Gemini, и только когда его суточная квота кончится, тема
  * уходит на Groq — лучше другой стиль, чем пустой слот.
  */
-export function writeRotation(model: string, index = 0): ModelRef[] {
-  const gemini = rotationFor(model).map((m) => ({ provider: "gemini" as const, model: m }));
+export function writeRotation(name: string, index = 0): ModelRef[] {
+  // Groq выбирают тогда, когда квоты Gemini на сегодня уже нет. Раскладывать
+  // темы по карманам Gemini в этот момент бессмысленно: карманы пусты.
+  if (refFromName(name).provider === "groq") return rotationFor(name);
+  const gemini = rotationFor(name);
   // Каждая тема начинает со СВОЕЙ модели: темы пишутся параллельно, и три
   // запроса подряд к одной модели стоили бы трёх из одной суточной квоты
   // вместо одного из трёх разных карманов.
@@ -100,7 +150,7 @@ export function writeRotation(model: string, index = 0): ModelRef[] {
   // Только две модели Gemini, дальше сразу Groq: при очереди из четырёх
   // первая тема до запасного провайдера просто не доходила — попытки
   // заканчивались раньше.
-  return [...mine.slice(0, 2), ...groqRefs(), { provider: "gemini" as const, model: FAST_MODEL }];
+  return dedupe([...mine.slice(0, 2), ...groqRefs(), { provider: "gemini" as const, model: FAST_MODEL }]);
 }
 
 /**

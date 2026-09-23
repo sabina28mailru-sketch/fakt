@@ -11,8 +11,17 @@ import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { loadLib } from "./helpers/load.mjs";
 
-const { siftRotation, writeRotation, rotationFor, FLASH_MODELS, GROQ_MODELS, FAST_MODEL } =
-  await loadLib("src/lib/rotation.ts");
+const {
+  siftRotation,
+  writeRotation,
+  rotationFor,
+  geminiRotation,
+  refFromName,
+  modelChoices,
+  FLASH_MODELS,
+  GROQ_MODELS,
+  FAST_MODEL,
+} = await loadLib("src/lib/rotation.ts");
 
 test("разбор идёт на Groq первым: там суточный лимит на порядки больше", () => {
   const order = siftRotation("gemini-3.8-flash");
@@ -36,9 +45,9 @@ test("каждая тема начинает со своей модели, чт�
   assert.notEqual(first[0].model, second[0].model);
 });
 
-test("выбранная в брифе модель всегда идёт первой среди Gemini", () => {
+test("выбранная в брифе модель всегда идёт первой", () => {
   for (const m of FLASH_MODELS) {
-    assert.equal(rotationFor(m)[0], m, `для ${m} его же модель должна быть первой`);
+    assert.equal(rotationFor(m)[0].model, m, `для ${m} его же модель должна быть первой`);
   }
 });
 
@@ -46,8 +55,9 @@ test("очередь не теряет моделей и не дублирует
   const order = rotationFor("gemini-3.6-flash");
   // Все флагманские плюс лёгкая замыкающей.
   assert.equal(order.length, FLASH_MODELS.length + 1);
-  assert.equal(new Set(order).size, order.length, `есть дубли: ${order.join(", ")}`);
-  for (const m of FLASH_MODELS) assert.ok(order.includes(m), `потеряна ${m}`);
+  const keys = order.map((r) => `${r.provider}:${r.model}`);
+  assert.equal(new Set(keys).size, keys.length, `есть дубли: ${keys.join(", ")}`);
+  for (const m of FLASH_MODELS) assert.ok(order.some((r) => r.model === m), `потеряна ${m}`);
 });
 
 test("лёгкая модель замыкает очередь, а не открывает её", () => {
@@ -55,8 +65,50 @@ test("лёгкая модель замыкает очередь, а не отк�
   // а не первый выбор. Без неё все четыре flash выбирались до конца,
   // и прогон падал, хотя запас ещё был.
   const order = rotationFor("gemini-3.8-flash");
-  assert.equal(order[order.length - 1], FAST_MODEL);
+  assert.equal(order[order.length - 1].model, FAST_MODEL);
   assert.ok(!FLASH_MODELS.includes(FAST_MODEL), "лёгкая не должна числиться флагманской");
+});
+
+/* ---------- Groq как основная модель ---------- */
+
+test("имя из брифа распознаётся: groq/ — это Groq, остальное — Gemini", () => {
+  const short = refFromName("groq/gpt-oss-120b");
+  assert.equal(short.provider, "groq");
+  // Полный путь из документации Groq понимаем тоже.
+  assert.equal(refFromName("openai/gpt-oss-120b").provider, "groq");
+  assert.equal(refFromName("openai/gpt-oss-120b").model, short.model);
+  assert.equal(refFromName("gemini-3.8-flash").provider, "gemini");
+  // Лишние пробелы при копировании — обычное дело, не повод уронить прогон.
+  assert.equal(refFromName("  gemini-3.8-flash  ").model, "gemini-3.8-flash");
+});
+
+test("в брифе предлагаются и Gemini, и Groq", () => {
+  const list = modelChoices();
+  assert.ok(list.some((m) => m.startsWith("gemini-")), "пропали модели Gemini");
+  assert.ok(list.some((m) => m.startsWith("groq/")), "Groq нельзя выбрать — ради этого всё и делалось");
+  assert.equal(new Set(list).size, list.length, `есть дубли: ${list.join(", ")}`);
+});
+
+test("выбранный владельцем Groq идёт первым и в разборе, и в написании", () => {
+  if (!process.env.GROQ_API_KEY) return; // без ключа очередь законно пуста
+  const name = "groq/gpt-oss-120b";
+  for (const order of [rotationFor(name), siftRotation(name), writeRotation(name, 0)]) {
+    assert.equal(order[0].provider, "groq", "выбор владельца обязан идти первым");
+  }
+  // Смысл выбора — «квота Gemini кончилась». Возвращаться к ней сразу после
+  // первой неудачи значило бы не услышать этот выбор.
+  assert.equal(writeRotation(name, 1)[0].provider, "groq", "ротация по темам не должна отменять выбор");
+});
+
+test("для длинного входа очередь только из Gemini", () => {
+  // Groq отвергает большой запрос по лимиту токенов в минуту, поэтому шаг
+  // сверки фактов (там весь текст открытых страниц) к нему не ходит вовсе.
+  for (const name of ["gemini-3.8-flash", "groq/gpt-oss-120b"]) {
+    assert.ok(
+      geminiRotation(name).every((r) => r.provider === "gemini"),
+      `в очереди для длинного входа оказался не Gemini (${name})`,
+    );
+  }
 });
 
 test("запас есть и в очереди на написание", () => {

@@ -1,6 +1,7 @@
 import { ApiError, GoogleGenAI } from "@google/genai";
 import { NextResponse } from "next/server";
-import { askFirstAvailable, writeRotation } from "@/lib/model";
+import { searchError } from "@/lib/errors";
+import { askFirstAvailable, refFromName, refLabel, writeRotation } from "@/lib/model";
 import { listEditions, listFeeds, readSettings, readUsage, usesDatabase } from "@/lib/store";
 
 export const runtime = "nodejs";
@@ -85,7 +86,9 @@ async function modelCheck(primary: string): Promise<Check> {
       { system: "Отвечай одним словом, без пояснений.", input: "Скажи: ок", maxTokens: 256 },
       6,
     );
-    if (via === primary) {
+    // Сравниваем по подписи, а не по строке из брифа: там может стоять
+    // «groq/gpt-oss-120b», а отвечающий зовётся так же только после разбора.
+    if (via === refLabel(refFromName(primary))) {
       return { label: "Модель", ok: true, detail: `Отвечает ${via}.${noGroq}` };
     }
     // Не беда, а норма работы: очередь для того и нужна. Но причину показываем,
@@ -130,8 +133,7 @@ async function searchCheck(domains: string[]): Promise<Check> {
       }),
     });
     if (!res.ok) {
-      const body = (await res.text()).slice(0, 200);
-      return { label: "Поиск", ok: false, detail: `Tavily ответил ${res.status}. ${body}` };
+      return { label: "Поиск", ok: false, detail: searchError(res.status) };
     }
     const data = (await res.json()) as { results?: unknown[]; usage?: { credits?: number } };
     const found = data.results?.length ?? 0;
@@ -156,7 +158,10 @@ function shortReason(line?: string): string {
   const dash = line.indexOf(" — ");
   const after = dash > 0 ? line.slice(dash + 3) : line;
   const stop = after.indexOf(". ");
-  return stop > 0 ? after.slice(0, stop + 1) : after;
+  const one = stop > 0 ? after.slice(0, stop + 1) : after.trim();
+  // Причины пишутся как часть фразы и точкой не заканчиваются, а здесь
+  // за ними идёт следующее предложение — без точки строки слипались.
+  return /[.!?]$/.test(one) ? one : `${one}.`;
 }
 
 function describe(e: unknown): string {

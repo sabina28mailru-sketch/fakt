@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Settings } from "@/lib/schema";
+import { modelChoices } from "@/lib/rotation";
 import { BUCKETS, DEFAULT_SOURCE_DOMAINS, type SourceBucket } from "@/lib/sources";
 import { WEEKDAYS_RU, cn, formatDateRu, rubricIndex, todayIso } from "@/lib/utils";
 import { FadeUp, Stagger } from "./motion";
@@ -22,7 +23,7 @@ import { Section } from "./ui/Section";
 import { Segmented } from "./ui/Segmented";
 import { useToast } from "./ui/Toast";
 
-const MODELS = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-3.8-flash"];
+const MODELS = modelChoices();
 
 type BriefKey = keyof Omit<Settings["brief"], "rubrics">;
 type GroupId = "connection" | "rubrics" | "who" | "where" | "truth" | "formats";
@@ -575,6 +576,11 @@ export function BriefView({
                     <option key={m} value={m} />
                   ))}
                 </datalist>
+                <span className="t-body-sm text-muted">
+                  Та, что пойдёт первой. Остальные подхватят, если у неё кончится суточная квота — у каждой модели Gemini
+                  она своя, 20 запросов в сутки. Модели groq/ на другом тарифе: запас там на порядки больше, а русский слог
+                  чуть суше. Когда Gemini на сегодня выбран, ставьте groq — и можно работать дальше.
+                </span>
                 {modelIssue && <FieldError id="model-error" text={modelIssue} />}
               </label>
 
