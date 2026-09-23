@@ -351,10 +351,42 @@ export type FeedReel = z.infer<typeof FeedReelSchema>;
  * в ленту не попадает. Пустой `sources` невозможен по схеме намеренно:
  * тема без открытого источника — это выдумка, а не тема.
  */
+/**
+ * Сценарий темы: три формата плюс то, что код не смог подтвердить в их
+ * текстах. Отдельная сущность, потому что пишется отдельно и позже —
+ * по кнопке, для выбранной темы.
+ */
+export const FeedScriptSchema = z.object({
+  stories: FeedStoriesSchema,
+  carousel: FeedCarouselSchema,
+  reel: FeedReelSchema,
+  /**
+   * Цифры и утверждения из ЭТИХ текстов, которых нет на скачанных страницах.
+   * Живут при сценарии, а не при теме: проверять нечего, пока сценарий
+   * не написан.
+   */
+  unverified: z.array(z.string()).default([]),
+  /** Какая модель писала и когда — видно, если стиль вдруг другой. */
+  model: z.string().default(""),
+  createdAt: z.string().default(""),
+});
+export type FeedScript = z.infer<typeof FeedScriptSchema>;
+
 export const FeedTopicSchema = z.object({
   id: z.string().min(1),
   kind: FeedKindSchema,
   title: z.string().min(1),
+  /**
+   * Подробный разбор новости: что именно произошло, у кого, когда, с какими
+   * числами. Это главное содержимое ленты — по нему владелец понимает, о чём
+   * речь, не открывая источник. Раньше здесь была одна фраза, а место
+   * занимали сценарии, которых он не заказывал.
+   */
+  summary: z.string().default(""),
+  /** Ключевые детали материала по пунктам: участники, цифры, сроки, решения. */
+  details: z.array(z.string()).default([]),
+  /** Что это значит для аудитории владельца — вывод, а не пересказ. */
+  soWhat: z.string().default(""),
   /** Неочевидный угол: чем эта подача отличается от общего места. */
   angle: z.string().min(1),
   /** Почему именно сейчас: инфоповод, на котором тема стоит. */
@@ -396,9 +428,13 @@ export const FeedTopicSchema = z.object({
    * честно непроверенное.
    */
   unverified: z.array(z.string()).default([]),
-  stories: FeedStoriesSchema,
-  carousel: FeedCarouselSchema,
-  reel: FeedReelSchema,
+  /**
+   * Готовый сценарий. Необязателен: лента приносит разбор новости, а три
+   * формата пишутся по кнопке для той темы, которую владелец выбрал.
+   * Писать их сразу для всех трёх тем значило тратить две трети квоты на
+   * то, что он не закажет.
+   */
+  script: FeedScriptSchema.optional(),
 });
 export type FeedTopic = z.infer<typeof FeedTopicSchema>;
 

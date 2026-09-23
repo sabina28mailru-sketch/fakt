@@ -9,11 +9,13 @@ import {
   GalleryHorizontalEnd,
   Layers,
   MessageCircleQuestion,
+  Loader2,
+  PenLine,
   RefreshCw,
   Sparkles,
 } from "lucide-react";
 import { useCallback, useState } from "react";
-import type { DailyFeed, FeedGap, FeedKind, FeedTopic } from "@/lib/schema";
+import type { DailyFeed, FeedGap, FeedKind, FeedScript, FeedTopic } from "@/lib/schema";
 import {
   feedCarouselTextsOnly,
   feedCarouselToText,
@@ -167,10 +169,10 @@ function FormatBlock({
   );
 }
 
-function StoriesBody({ topic }: { topic: FeedTopic }) {
+function StoriesBody({ script }: { script: FeedScript }) {
   return (
     <ol className="flex flex-col gap-3">
-      {topic.stories.frames.map((f) => (
+      {script.stories.frames.map((f) => (
         <li key={f.n} className="flex gap-3">
           <span className="t-meta w-6 shrink-0 pt-0.5 text-faint">{String(f.n).padStart(2, "0")}</span>
           <div className="min-w-0 flex-1">
@@ -190,11 +192,11 @@ function StoriesBody({ topic }: { topic: FeedTopic }) {
   );
 }
 
-function CarouselBody({ topic }: { topic: FeedTopic }) {
+function CarouselBody({ script }: { script: FeedScript }) {
   return (
     <>
       <ol className="flex flex-col gap-3">
-        {topic.carousel.slides.map((s) => (
+        {script.carousel.slides.map((s) => (
           <li key={s.n} className="flex gap-3">
             <span className="t-meta w-6 shrink-0 pt-0.5 text-faint">{String(s.n).padStart(2, "0")}</span>
             <div className="min-w-0 flex-1">
@@ -206,37 +208,37 @@ function CarouselBody({ topic }: { topic: FeedTopic }) {
       </ol>
       <div className="rule mt-4 pt-3">
         <span className="t-kicker">Подпись к посту</span>
-        <p className="t-content mt-1.5 [text-wrap:pretty]">{topic.carousel.caption}</p>
+        <p className="t-content mt-1.5 [text-wrap:pretty]">{script.carousel.caption}</p>
       </div>
     </>
   );
 }
 
-function ReelBody({ topic }: { topic: FeedTopic }) {
+function ReelBody({ script }: { script: FeedScript }) {
   return (
     <>
       <div className="mark border-l-2 border-accent pl-3">
         <span className="t-kicker">Хук · первые 3 секунды</span>
-        <p className="t-hook mt-1.5 [text-wrap:pretty]">{topic.reel.hook}</p>
+        <p className="t-hook mt-1.5 [text-wrap:pretty]">{script.reel.hook}</p>
       </div>
       <ol className="mt-4 flex flex-col gap-2">
-        {topic.reel.script.map((l, i) => (
+        {script.reel.script.map((l, i) => (
           <li key={i} className="flex gap-3">
             <span className="t-log w-[74px] shrink-0 pt-0.5 text-faint">{l.time}</span>
             <p className="t-content min-w-0 flex-1 [text-wrap:pretty]">{l.text}</p>
           </li>
         ))}
       </ol>
-      {topic.reel.captions.length > 0 && (
+      {script.reel.captions.length > 0 && (
         <p className="t-caption mt-3">
-          <span className="t-kicker">Надписи на экране</span> {topic.reel.captions.join(" · ")}
+          <span className="t-kicker">Надписи на экране</span> {script.reel.captions.join(" · ")}
         </p>
       )}
       <div className="rule mt-4 pt-3">
         <span className="t-kicker">Призыв</span>
-        <p className="t-content mt-1.5">{topic.reel.cta}</p>
+        <p className="t-content mt-1.5">{script.reel.cta}</p>
         <span className="t-kicker mt-3 block">Подпись к рилсу</span>
-        <p className="t-content mt-1.5 [text-wrap:pretty]">{topic.reel.caption}</p>
+        <p className="t-content mt-1.5 [text-wrap:pretty]">{script.reel.caption}</p>
       </div>
     </>
   );
@@ -403,7 +405,28 @@ function GapCard({
   );
 }
 
-function TopicCard({ topic, index }: { topic: FeedTopic; index: number }) {
+/**
+ * Карточка темы дня.
+ *
+ * Раздел открывают утром, чтобы понять, ЧТО произошло, — поэтому наверху
+ * стоит разбор новости, а не готовые кадры. Сценарий пишется по кнопке для
+ * той темы, которую выбрали: раньше он писался сразу для всех трёх, и две
+ * трети работы и квоты уходили на то, чего никто не заказывал.
+ */
+function TopicCard({
+  topic,
+  index,
+  busy,
+  onWriteScript,
+  preview,
+}: {
+  topic: FeedTopic;
+  index: number;
+  /** Сценарий этой темы пишется прямо сейчас. */
+  busy: boolean;
+  onWriteScript: (kind: FeedKind) => void;
+  preview: boolean;
+}) {
   const Icon = KIND_ICON[topic.kind];
   return (
     <FadeUp as="article" className="card flex flex-col gap-3 p-5">
@@ -413,22 +436,32 @@ function TopicCard({ topic, index }: { topic: FeedTopic; index: number }) {
           <Icon size={13} className="shrink-0 text-muted" aria-hidden />
           <Mark tone={KIND_TONE[topic.kind]}>{FEED_KIND_LABEL[topic.kind]}</Mark>
         </span>
-        <CopyButton
-          text={feedTopicToText(topic)}
-          label="Копировать тему целиком"
-          variant="ghost"
-          size="sm"
-        />
+        <CopyButton text={feedTopicToText(topic)} label="Копировать тему целиком" variant="ghost" size="sm" />
       </div>
 
-      <div>
-        <h3 className="t-d3 [text-wrap:balance]">{topic.title}</h3>
-        <p className="t-content mt-2 text-fg-soft [text-wrap:pretty]">{topic.angle}</p>
-      </div>
+      <h3 className="t-d3 [text-wrap:balance]">{topic.title}</h3>
 
-      {/* Непроверенное — наверху карточки, а не в свёрнутом блоке внизу.
-          Владелец копирует текст сразу; предупреждение, которое надо искать,
-          бесполезно. */}
+      {/* Разбор новости — главное содержимое карточки. Ради него и заходят. */}
+      {topic.summary && <p className="t-content text-fg-soft [text-wrap:pretty]">{topic.summary}</p>}
+
+      {topic.details.length > 0 && (
+        <ul className="flex flex-col gap-1.5">
+          {topic.details.map((d, i) => (
+            <li key={i} className="t-body-sm flex gap-2 text-fg-soft [text-wrap:pretty]">
+              <span className="mt-[7px] size-[4px] shrink-0 rounded-full bg-muted" aria-hidden />
+              <span className="min-w-0">{d}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {topic.soWhat && (
+        <p className="t-body-sm mark border-l-2 border-accent pl-3 text-fg [text-wrap:pretty]">
+          <span className="t-kicker block">Что это значит</span>
+          {topic.soWhat}
+        </p>
+      )}
+
       {topic.unverified.length > 0 && (
         <div role="alert" className="mark border-l-2 border-bad bg-bad-soft px-3 py-2.5">
           <Mark tone="bad">Проверьте перед публикацией</Mark>
@@ -439,66 +472,122 @@ function TopicCard({ topic, index }: { topic: FeedTopic; index: number }) {
               </li>
             ))}
           </ul>
-          <p className="t-micro mt-2 text-muted">
-            Это то, чего нет на скачанных страницах. Остальные цифры в теме сверены с источниками.
-          </p>
         </div>
       )}
 
-      <p className="t-body-sm text-muted [text-wrap:pretty]">
-        <span className="t-kicker">Почему сейчас</span> {topic.whyNow}
-      </p>
-
-      {topic.audienceQuestion && (
+      <div className="flex flex-col gap-1.5">
         <p className="t-body-sm text-muted [text-wrap:pretty]">
-          <span className="t-kicker">Вопрос аудитории</span> {topic.audienceQuestion}
+          <span className="t-kicker">Почему сейчас</span> {topic.whyNow}
         </p>
-      )}
+        <p className="t-body-sm text-muted [text-wrap:pretty]">
+          <span className="t-kicker">Угол</span> {topic.angle}
+        </p>
+        {topic.audienceQuestion && (
+          <p className="t-body-sm text-muted [text-wrap:pretty]">
+            <span className="t-kicker">Вопрос аудитории</span> {topic.audienceQuestion}
+          </p>
+        )}
+      </div>
 
       <div className="mt-1 flex flex-col">
-        <FormatBlock
-          icon={Camera}
-          name="Сторис"
-          idea={topic.stories.idea}
-          copyAll={feedStoriesToText(topic)}
-          copyTexts={feedStoriesTextsOnly(topic)}
-          copyLabel="сторис"
-        >
-          <StoriesBody topic={topic} />
-        </FormatBlock>
-
-        <FormatBlock
-          icon={GalleryHorizontalEnd}
-          name="Карусель"
-          idea={topic.carousel.idea}
-          copyAll={feedCarouselToText(topic)}
-          copyTexts={feedCarouselTextsOnly(topic)}
-          copyLabel="карусель"
-        >
-          <CarouselBody topic={topic} />
-        </FormatBlock>
-
-        <FormatBlock
-          icon={Film}
-          name="Рилс"
-          idea={topic.reel.idea}
-          copyAll={feedReelToText(topic)}
-          copyTexts={feedReelTextsOnly(topic)}
-          copyLabel="рилс"
-        >
-          <ReelBody topic={topic} />
-        </FormatBlock>
-
         <GroundBlock topic={topic} />
+        <ScriptBlock topic={topic} busy={busy} preview={preview} onWrite={() => onWriteScript(topic.kind)} />
       </div>
     </FadeUp>
   );
 }
 
 /**
+ * Сценарий темы. Пока не заказан — одна кнопка и честная строка о цене:
+ * это вызов модели, а суточная квота не бесконечная.
+ */
+function ScriptBlock({
+  topic,
+  busy,
+  preview,
+  onWrite,
+}: {
+  topic: FeedTopic;
+  busy: boolean;
+  preview: boolean;
+  onWrite: () => void;
+}) {
+  const script = topic.script;
+
+  if (!script) {
+    return (
+      <div className="rule flex flex-wrap items-center gap-3 pt-3">
+        <Button variant="secondary" size="sm" onClick={onWrite} disabled={busy || preview}>
+          {busy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <PenLine size={13} aria-hidden />}
+          {busy ? "Пишу сценарий…" : "Сгенерировать сценарий"}
+        </Button>
+        <span className="t-micro text-faint">
+          {busy
+            ? "Один вызов модели, обычно меньше минуты."
+            : "Сторис, карусель и рилс по этой теме — один вызов модели."}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {script.unverified.length > 0 && (
+        <div role="alert" className="mark mt-3 border-l-2 border-bad bg-bad-soft px-3 py-2.5">
+          <Mark tone="bad">В сценарии есть неподтверждённое</Mark>
+          <ul className="mt-2 flex flex-col gap-1">
+            {script.unverified.map((u, i) => (
+              <li key={i} className="t-body-sm text-fg [text-wrap:pretty]">
+                {u}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <FormatBlock
+        icon={Camera}
+        name="Сторис"
+        idea={script.stories.idea}
+        copyAll={feedStoriesToText(script)}
+        copyTexts={feedStoriesTextsOnly(script)}
+        copyLabel="сторис"
+      >
+        <StoriesBody script={script} />
+      </FormatBlock>
+
+      <FormatBlock
+        icon={GalleryHorizontalEnd}
+        name="Карусель"
+        idea={script.carousel.idea}
+        copyAll={feedCarouselToText(script)}
+        copyTexts={feedCarouselTextsOnly(script)}
+        copyLabel="карусель"
+      >
+        <CarouselBody script={script} />
+      </FormatBlock>
+
+      <FormatBlock
+        icon={Film}
+        name="Рилс"
+        idea={script.reel.idea}
+        copyAll={feedReelToText(script)}
+        copyTexts={feedReelTextsOnly(script)}
+        copyLabel="рилс"
+      >
+        <ReelBody script={script} />
+      </FormatBlock>
+
+      <p className="t-micro rule pt-2 text-faint">
+        Сценарий написан {script.model || "моделью"}. Кнопка «Сгенерировать» перепишет его заново.
+      </p>
+    </>
+  );
+}
+
+/**
  * Подшивка: дни, за которые лента уже собрана. Лежит в самом разделе, а не
- * в «Истории», потому что вчерашние темы ищут именно здесь. До этого
- * вчерашний день был недостижим вовсе — сайт читал только сегодняшний файл.
+ * в «Истории», потому что вчерашние темы ищут именно здесь.
  */
 function DayStrip({
   feeds,
@@ -524,13 +613,15 @@ function DayStrip({
             aria-current={active ? "page" : undefined}
             className={cn(
               "shrink-0 rounded-[4px] border px-2.5 py-1.5 text-left transition-colors duration-150",
+              "[@media(pointer:coarse)]:min-h-11",
               active ? "border-accent bg-accent-soft text-fg" : "border-line text-muted hover:text-fg",
             )}
           >
-            <span className="t-meta block">{f.date.slice(8, 10)}.{f.date.slice(5, 7)}</span>
+            <span className="t-meta block">
+              {f.date.slice(8, 10)}.{f.date.slice(5, 7)}
+            </span>
             <span className="t-micro block text-faint">
-              {f.topics.length} из 3
-              {f.date === today && " · сегодня"}
+              {f.topics.length} из 3{f.date === today && " · сегодня"}
             </span>
           </button>
         );
@@ -547,6 +638,8 @@ export function TodayView({
   running,
   preview,
   onGenerate,
+  onWriteScript,
+  writing,
 }: {
   feed?: DailyFeed;
   /** Дни, за которые лента уже собрана, свежие первыми. */
@@ -558,6 +651,10 @@ export function TodayView({
   preview: boolean;
   /** kinds задаётся при доборе одного пустого типа. Пусто — собрать всё. */
   onGenerate: (kinds?: FeedKind[]) => void;
+  /** Заказать сценарий для одной темы. */
+  onWriteScript: (kind: FeedKind) => void;
+  /** Для какой темы сценарий пишется прямо сейчас. */
+  writing?: FeedKind;
 }) {
   const [confirmRedo, setConfirmRedo] = useState(false);
   const stale = Boolean(feed) && feed?.date !== date;
@@ -641,7 +738,14 @@ export function TodayView({
 
       <Stagger className="flex flex-col gap-4">
         {feed.topics.map((topic, i) => (
-          <TopicCard key={topic.id} topic={topic} index={i} />
+          <TopicCard
+            key={topic.id}
+            topic={topic}
+            index={i}
+            busy={writing === topic.kind}
+            preview={preview}
+            onWriteScript={onWriteScript}
+          />
         ))}
         {/* Пустые типы — тоже карточки, а не строчка в предупреждении наверху.
             Слот виден на своём месте, причина написана рядом, и добрать можно

@@ -1,4 +1,4 @@
-import type { DailyFeed, Edition, FeedTopic } from "./schema";
+import type { DailyFeed, Edition, FeedScript, FeedTopic } from "./schema";
 import { CONFIDENCE_LABEL, FEED_KIND_LABEL, LEVEL_LABEL } from "./utils";
 
 /* ---------- Отдельные фрагменты ----------
@@ -86,50 +86,51 @@ export function editionToText(e: Edition) {
 }
 
 /* ---------- Лента дня ----------
-   Темы ленты устроены как выпуск, но с полем idea у каждого формата:
-   замысел подачи владельцу нужен, когда он берётся снимать. */
+   Раздел приносит РАЗБОР новости, а сценарий пишется по кнопке. Поэтому
+   функции ниже разделены надвое: разбор темы есть всегда, форматы — только
+   когда владелец их заказал. */
 
-export function feedStoriesToText(t: FeedTopic) {
-  const frames = t.stories.frames
+export function feedStoriesToText(sc: FeedScript) {
+  const frames = sc.stories.frames
     .map((f) => {
       const lines = [`Кадр ${f.n} — ${f.visual}`, f.text];
       if (f.interactive) lines.push(`Интерактив: ${f.interactive}`);
       return lines.join("\n");
     })
     .join("\n\n");
-  return `Замысел: ${t.stories.idea}\n\n${frames}`;
+  return `Замысел: ${sc.stories.idea}\n\n${frames}`;
 }
 
-export function feedCarouselToText(t: FeedTopic) {
-  const slides = t.carousel.slides.map((s) => `Слайд ${s.n}. ${s.title}\n${s.body}`).join("\n\n");
-  return `Замысел: ${t.carousel.idea}\n\n${slides}\n\nПодпись к посту:\n${t.carousel.caption}`;
+export function feedCarouselToText(sc: FeedScript) {
+  const slides = sc.carousel.slides.map((s) => `Слайд ${s.n}. ${s.title}\n${s.body}`).join("\n\n");
+  return `Замысел: ${sc.carousel.idea}\n\n${slides}\n\nПодпись к посту:\n${sc.carousel.caption}`;
 }
 
-export function feedReelToText(t: FeedTopic) {
-  const script = t.reel.script.map((l) => `${l.time} — ${l.text}`).join("\n");
+export function feedReelToText(sc: FeedScript) {
+  const script = sc.reel.script.map((l) => `${l.time} — ${l.text}`).join("\n");
   return [
-    `Замысел: ${t.reel.idea}`,
-    `Хук: ${t.reel.hook}`,
+    `Замысел: ${sc.reel.idea}`,
+    `Хук: ${sc.reel.hook}`,
     script,
-    t.reel.captions.length ? `Надписи на экране: ${t.reel.captions.join(" · ")}` : "",
-    `Призыв: ${t.reel.cta}`,
-    `Подпись к рилсу:\n${t.reel.caption}`,
+    sc.reel.captions.length ? `Надписи на экране: ${sc.reel.captions.join(" · ")}` : "",
+    `Призыв: ${sc.reel.cta}`,
+    `Подпись к рилсу:\n${sc.reel.caption}`,
   ]
     .filter(Boolean)
     .join("\n\n");
 }
 
 /** Только тексты на экране — то, что вставляют в Instagram без пометок. */
-export function feedStoriesTextsOnly(t: FeedTopic) {
-  return t.stories.frames.map((f) => f.text).join("\n\n");
+export function feedStoriesTextsOnly(sc: FeedScript) {
+  return sc.stories.frames.map((f) => f.text).join("\n\n");
 }
 
-export function feedCarouselTextsOnly(t: FeedTopic) {
-  return t.carousel.slides.map((s) => `${s.title}\n\n${s.body}`).join("\n\n");
+export function feedCarouselTextsOnly(sc: FeedScript) {
+  return sc.carousel.slides.map((s) => `${s.title}\n\n${s.body}`).join("\n\n");
 }
 
-export function feedReelTextsOnly(t: FeedTopic) {
-  return [t.reel.hook, ...t.reel.script.map((l) => l.text), t.reel.cta].join("\n\n");
+export function feedReelTextsOnly(sc: FeedScript) {
+  return [sc.reel.hook, ...sc.reel.script.map((l) => l.text), sc.reel.cta].join("\n\n");
 }
 
 export function feedSourcesToText(t: FeedTopic) {
@@ -138,20 +139,34 @@ export function feedSourcesToText(t: FeedTopic) {
     .join("\n");
 }
 
+/** Весь сценарий темы. Пусто, если он ещё не заказан. */
+export function feedScriptToText(t: FeedTopic) {
+  if (!t.script) return "";
+  return [
+    `СТОРИС\n${feedStoriesToText(t.script)}`,
+    `КАРУСЕЛЬ\n${feedCarouselToText(t.script)}`,
+    `РИЛС\n${feedReelToText(t.script)}`,
+    t.script.unverified.length
+      ? `!! ПРОВЕРЬТЕ ПЕРЕД ПУБЛИКАЦИЕЙ — этого нет на скачанных страницах: ${t.script.unverified.join(" · ")}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+/**
+ * Разбор темы без сценария: то, ради чего раздел и открывают утром.
+ * Именно это копируют, когда хотят переслать новость или сохранить себе.
+ */
 export function feedTopicToText(t: FeedTopic) {
   return [
     `${FEED_KIND_LABEL[t.kind].toUpperCase()}: ${t.title}`,
-    // Предупреждение уходит в буфер вместе с текстом: человек чаще всего
-    // копирует и вставляет, не возвращаясь к экрану.
-    t.unverified.length
-      ? `!! ПРОВЕРЬТЕ ПЕРЕД ПУБЛИКАЦИЕЙ — этого нет на скачанных страницах: ${t.unverified.join(" · ")}`
-      : "",
-    `Угол: ${t.angle}`,
+    t.summary ? `О ЧЁМ\n${t.summary}` : "",
+    t.details.length ? `ДЕТАЛИ\n${t.details.map((d) => `— ${d}`).join("\n")}` : "",
+    t.soWhat ? `ЧТО ЭТО ЗНАЧИТ\n${t.soWhat}` : "",
     `Почему сейчас: ${t.whyNow}`,
+    `Угол: ${t.angle}`,
     t.audienceQuestion ? `Вопрос аудитории: ${t.audienceQuestion}` : "",
-    `СТОРИС\n${feedStoriesToText(t)}`,
-    `КАРУСЕЛЬ\n${feedCarouselToText(t)}`,
-    `РИЛС\n${feedReelToText(t)}`,
     t.facts.length
       ? `ФАКТЫ\n${t.facts
           .map(
@@ -165,6 +180,7 @@ export function feedTopicToText(t: FeedTopic) {
       ? `НАЗВАНЫ НА СТРАНИЦЕ — адресов нет, ставить их в контент нельзя\n${t.mentions.map((m) => `— ${m}`).join("\n")}`
       : "",
     t.evidence ? `ПОДТВЕРЖДЕНИЕ СО СТРАНИЦЫ\n«${t.evidence}»` : "",
+    feedScriptToText(t),
   ]
     .filter(Boolean)
     .join("\n\n");

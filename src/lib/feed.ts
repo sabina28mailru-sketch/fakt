@@ -8,6 +8,7 @@ import {
   type Fact,
   type FeedEvent,
   type FeedKind,
+  type FeedScript,
   type FeedTopic,
   type ResearchSource,
   type Settings,
@@ -21,7 +22,6 @@ import {
   lanesFor,
   siftRotation,
   writeRotation,
-  type ModelRef,
 } from "./model";
 import { openPages, tavilySearchMany, type SearchHit } from "./search";
 import { ageInDays, freshnessOf, scoreCredibility, type CredibilitySignals } from "./credibility";
@@ -33,14 +33,13 @@ import {
   looksClickbait,
   normalizeDate,
   pageDate,
-  sameUrl,
 } from "./page-guards";
 import { checkNumbers, firstPersonClaims } from "./numbers";
 import { addUsage, readFeed, readFeedMemory, saveFeed } from "./store";
 import { FEED_KIND_LABEL, hostOf, weekdayRu } from "./utils";
 
 /**
- * Лента дня: три темы разных типов, каждая с тремя направлениями контента.
+ * Лента дня: три темы разных типов с подробным разбором каждой новости.
  *
  * Главное устройство — разделение труда между моделью и кодом. Модель ищет
  * формулировки, читает страницы и пишет контент. Код решает всё, на чём
@@ -49,12 +48,13 @@ import { FEED_KIND_LABEL, hostOf, weekdayRu } from "./utils";
  * вчерашние. Доверять это модели нельзя — она охотно выдаёт три вариации
  * одной темы и уверенно цитирует то, чего на странице нет.
  *
- * Бюджет вызовов модели за прогон: 1 (повестка, на lite) + 3 (отбор пачками)
- * + 3 (написание) = 7 в спокойном случае. На замере вышло 12: когда у модели
- * кончается суточная квота, пачка или тема уходит на соседнюю, и каждая
- * попытка считается. Поэтому обещать «семь» нельзя — честный разброс 7–13,
- * но все они размазаны по пяти моделям с раздельными квотами, и ни одна
- * не тратит больше двух-трёх запросов из своих двадцати.
+ * Что лента НЕ делает: она не пишет сценарии. Раздел открывают утром, чтобы
+ * понять, что произошло, а три формата заказывают для одной темы из трёх —
+ * и раньше две трети этой работы и квоты уходили впустую. Теперь тема несёт
+ * подробный разбор новости, а сценарий пишет runFeedScript по кнопке.
+ *
+ * Бюджет вызовов за прогон: 1 (повестка, на lite) + 3 (отбор пачками) = 4.
+ * Было 7–13. Сценарий стоит ещё один вызов и только когда он нужен.
  */
 
 /** Сколько поисковых запросов на каждый тип темы. Три типа × 3 = 9 запросов. */
@@ -171,7 +171,12 @@ interface Material {
   url: string;
   kind: FeedKind;
   title: string;
+  /** Подробный разбор: 4–6 предложений о том, что произошло. Главное в ленте. */
   summary: string;
+  /** Ключевые детали пунктами: участники, цифры, сроки, решения. */
+  details: string[];
+  /** Что это значит для аудитории владельца. Вывод, а не пересказ. */
+  soWhat: string;
   whyNow: string;
   angle: string;
   audienceQuestion: string;
@@ -564,6 +569,8 @@ export async function* runFeed(opts: FeedOptions): AsyncGenerator<FeedEvent> {
         kind,
         title: selfSource.title.trim(),
         summary: (typeof o.summary === "string" ? o.summary : "").trim(),
+        details: parseStrings(o.details, 6),
+        soWhat: (typeof o.soWhat === "string" ? o.soWhat : "").trim(),
         whyNow: (typeof o.whyNow === "string" ? o.whyNow : "").trim(),
         angle: (typeof o.angle === "string" ? o.angle : "").trim(),
         audienceQuestion: (typeof o.audienceQuestion === "string" ? o.audienceQuestion : "").trim(),
@@ -611,8 +618,8 @@ export async function* runFeed(opts: FeedOptions): AsyncGenerator<FeedEvent> {
     // отличить «не нашлось вовсе» от «нашлось, но это повтор».
     const materialsByKind = new Map<FeedKind, number>();
     for (const m of materials) materialsByKind.set(m.kind, (materialsByKind.get(m.kind) ?? 0) + 1);
-    // Ошибки написания по типам: «кончилась квота» и «нечего писать» —
-    // разные беды, и человеку они говорят разное.
+    // Осталось пустым для совместимости с buildGaps: написание больше не
+    // входит в прогон, поэтому отказать оно не может.
     const writeErrors = new Map<FeedKind, string>();
 
     /* Тройку собирает КОД: по лучшему материалу на каждый тип. */
@@ -638,41 +645,26 @@ export async function* runFeed(opts: FeedOptions): AsyncGenerator<FeedEvent> {
       return;
     }
 
-    /* ---------- 5. Три формата на каждую тему ---------- */
-    yield { type: "step", step: "write", status: "running", detail: `${chosen.length} тем параллельно` };
+    /* ---------- 5. Сборка тем ---------- */
+    /*
+     * Раньше здесь модель писала три формата на каждую тему — три вызова
+     * за прогон. Но раздел открывают не за сценариями, а чтобы понять, что
+     * произошло; сценарий заказывают для одной темы из трёх, и две трети
+     * работы уходили впустую. Теперь тема собирается из уже разобранного
+     * материала без единого нового вызова, а сценарий пишется по кнопке.
+     */
+    yield { type: "step", step: "write", status: "running", detail: `${chosen.length} тем` };
 
     const topics: FeedTopic[] = [];
-    const writePending = new Map(
-      chosen.map((c, i) => [i, writeTopic(client, settings, writeRotation(model, i), c, date)] as const),
-    );
-    while (writePending.size) {
-      const [i, res] = await Promise.race(
-        [...writePending.entries()].map(([k, p]) => p.then((r) => [k, r] as const)),
-      );
-      writePending.delete(i);
-      modelCalls += res.calls;
-      if (res.topic) {
-        topics.push(res.topic);
-        yield {
-          type: "log",
-          kind: "result",
-          text: `${FEED_KIND_LABEL[res.topic.kind]} (${res.via}): ${res.topic.title}`,
-        };
-        yield { type: "topic", topic: res.topic };
-      } else {
-        writeErrors.set(chosen[i].anchor.kind, res.error);
-        yield {
-          type: "log",
-          kind: "warn",
-          text: `Тему «${chosen[i].anchor.title}» написать не удалось: ${res.error}`,
-        };
-      }
+    for (const c of chosen) {
+      const topic = buildTopic(c, date);
+      topics.push(topic);
       yield {
-        type: "step",
-        step: "write",
-        status: "running",
-        detail: `${topics.length} из ${chosen.length} готово`,
+        type: "log",
+        kind: "result",
+        text: `${FEED_KIND_LABEL[topic.kind]}: ${topic.title} · фактов ${topic.facts.length}`,
       };
+      yield { type: "topic", topic };
     }
 
     /*
@@ -806,121 +798,131 @@ function pickTopics(materials: Material[], pastTitles: string[]): Chosen[] {
   return out;
 }
 
-/** Материалы темы в текст для модели. Модель видит только то, что проверено. */
-function materialsBlock(chosen: Chosen): string {
-  const one = (m: Material, tag: string) =>
-    [
-      `### ${tag}: ${m.title}`,
-      `Издание: ${m.outlet}${m.date ? `, ${m.date}` : ", дата неизвестна"}`,
-      `URL: ${m.url}`,
-      `Достоверность: ${m.credibility.score} из 100 (${m.credibility.label})`,
-      m.summary ? `О чём: ${m.summary}` : "",
-      m.whyNow ? `Почему сейчас: ${m.whyNow}` : "",
-      m.angle ? `Угол: ${m.angle}` : "",
-      m.audienceQuestion ? `Вопрос аудитории: ${m.audienceQuestion}` : "",
-      `Дословная цитата со страницы (проверена системой): «${m.evidence}»`,
-      m.facts.length ? `Факты со страницы:\n${m.facts.map((f) => `— ${f}`).join("\n")}` : "Конкретных цифр на странице нет.",
-      m.mentions.length
-        ? `Страница ссылается на первоисточники (только названия; адресов у них нет и ставить их в контент НЕЛЬЗЯ): ${m.mentions.join("; ")}`
-        : "",
-    ]
-      .filter(Boolean)
-      .join("\n");
 
-  return [one(chosen.anchor, "ОСНОВНОЙ МАТЕРИАЛ"), ...chosen.support.map((m) => one(m, "ДОПОЛНИТЕЛЬНО"))].join(
-    "\n\n---\n\n",
-  );
+
+/**
+ * Уровень факта по адресу источника. Раньше его называла модель, а теперь
+ * он нужен без её участия: тема собирается из разбора, нового вызова нет.
+ * Домен — слабый, но проверяемый признак, а «мир» как запасной вариант
+ * честнее, чем угаданная модель.
+ */
+function levelOf(url: string): Fact["level"] {
+  const host = hostOf(url);
+  if (/\.kz$|kazakh|tengri|kapital|kursiv|inbusiness/i.test(host)) return "kz";
+  if (/\.ru$|\.by$|\.uz$|\.kg$|vc\.ru|sostav|cossa|rbc/i.test(host)) return "cis";
+  if (/doi\.org|arxiv|nature\.com|science\.org|pubmed|\.edu$/i.test(host)) return "science";
+  return "world";
 }
 
 /**
- * Написать три формата для одной темы. Темы пишутся параллельно и каждая
- * на своей модели: три вызова к одной модели подряд стоили бы трёх запросов
- * из одной суточной квоты, а так — по одному из трёх разных.
+ * Тема из разобранного материала. Ни одного вызова модели: всё, что здесь
+ * нужно, уже получено на шаге отбора и проверено кодом.
+ *
+ * Факты проходят ту же сверку, что и цифры сценария: число, которого нет на
+ * скачанной странице, в факт не попадает. Раньше факты со страницы уходили
+ * в промпт написания вообще без проверки — и возвращались оттуда цифрами
+ * в кадрах.
  */
-async function writeTopic(
-  client: GoogleGenAI,
-  settings: Settings,
-  order: ModelRef[],
-  chosen: Chosen,
-  date: string,
-): Promise<{ topic: FeedTopic | null; error: string; calls: number; via: string }> {
-  const kind = chosen.anchor.kind;
-  const system = buildFeedWriteSystem(settings, kind);
+function buildTopic(chosen: Chosen, date: string): FeedTopic {
+  const { anchor, support } = chosen;
+  const pages = [anchor, ...support];
+
+  const facts: Fact[] = [];
+  const dropped: string[] = [];
+  for (const m of pages) {
+    for (const line of m.facts) {
+      const bad = checkNumbers([{ where: "факт", text: line }], [m.text]);
+      if (bad.length) {
+        dropped.push(`${line.slice(0, 60)}… (числа ${bad.map((b) => b.value).join(", ")} на странице нет)`);
+        continue;
+      }
+      facts.push({
+        fact: line,
+        source: m.outlet,
+        url: m.url,
+        date: m.date || "дата неизвестна",
+        level: levelOf(m.url),
+        // Высокая уверенность значит «страницу открыли и цифры сверили».
+        // Здесь выполнено и то и другое.
+        confidence: "high",
+      });
+    }
+  }
+
+  return {
+    id: `${date}-${anchor.kind}`,
+    kind: anchor.kind,
+    title: anchor.title,
+    summary: anchor.summary,
+    // Детали основного материала впереди, дополняющие — следом.
+    details: [...new Set(pages.flatMap((m) => m.details))].slice(0, 8),
+    soWhat: anchor.soWhat,
+    angle: anchor.angle,
+    whyNow: anchor.whyNow || `Материал от ${anchor.date || "неизвестной даты"}.`,
+    audienceQuestion: anchor.audienceQuestion,
+    facts: facts.slice(0, 8),
+    sources: pages.map((m) => m.source),
+    mentions: [...new Set(pages.flatMap((m) => m.mentions))].slice(0, 6),
+    evidence: anchor.evidence,
+    credibility: anchor.credibility,
+    freshness: anchor.freshness,
+    unverified: dropped.map((d) => `Факт отброшен: ${d}`),
+    // Сценария нет намеренно: его пишут по кнопке для выбранной темы.
+  };
+}
+
+/**
+ * Написать три формата для одной темы — по кнопке, а не в составе прогона.
+ *
+ * Отдельная функция, потому что отдельное решение владельца: он смотрит
+ * разбор, выбирает тему и только тогда просит сценарий. Это один вызов
+ * модели вместо трёх на прогон.
+ */
+export async function runFeedScript(opts: {
+  settings: Settings;
+  date: string;
+  kind: FeedKind;
+  apiKey?: string;
+}): Promise<{ script: FeedScript; via: string; calls: number }> {
+  const apiKey = opts.apiKey ?? process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("Не задан GEMINI_API_KEY. Добавьте его в .env.local и перезапустите npm run dev.");
+
+  const feed = await readFeed(opts.date);
+  const topic = feed?.topics.find((t) => t.kind === opts.kind);
+  if (!feed || !topic) throw new Error("Темы этого типа в ленте за эту дату нет.");
+
+  const client = new GoogleGenAI({ apiKey });
+  const system = buildFeedWriteSystem(opts.settings, topic.kind);
+  const allowedUrls = topic.sources.map((s) => s.url);
   const input = [
-    `Сегодня ${weekdayRu(date)}, ${date}.`,
-    `Тип темы: ${FEED_KIND_LABEL[kind]}.`,
-    "ПРОВЕРЕННЫЕ МАТЕРИАЛЫ (других источников у тебя нет):",
-    materialsBlock(chosen),
-    "Напиши тему и три формата. Ссылки в фактах бери ТОЛЬКО из URL выше.",
+    `Сегодня ${weekdayRu(opts.date)}, ${opts.date}.`,
+    `Тип темы: ${FEED_KIND_LABEL[topic.kind]}.`,
+    "ТЕМА И ПРОВЕРЕННЫЕ МАТЕРИАЛЫ (других источников у тебя нет):",
+    topicBlock(topic),
+    `Ссылки в фактах бери ТОЛЬКО отсюда:\n${allowedUrls.map((u) => `— ${u}`).join("\n")}`,
+    "Напиши три формата.",
   ].join("\n\n");
 
-  const pages = [chosen.anchor, ...chosen.support];
-  const allowedUrls = pages.map((m) => m.url);
-
+  const order = writeRotation(opts.settings.model, 0);
   const failures: string[] = [];
   let calls = 0;
-  /**
-   * Тема, у которой всё на месте, кроме фактов с проверенными ссылками.
-   * Держим её про запас: если следующая модель справится лучше — берём ту,
-   * если нет — отдаём эту, а не теряем оплаченную работу целиком.
-   */
-  let withoutFacts: FeedTopic | null = null;
-  let withoutFactsVia = "";
-  /** Что не подтвердилось на прошлой попытке — уходит в промпт повтора. */
-  let lastUnverified: string[] = [];
-
-  // Очередь уже собрана под эту тему: две модели Gemini, дальше Groq.
   for (const [attempt, ref] of order.entries()) {
     calls++;
     try {
-      // На повторе называем допустимые адреса списком: самая частая причина
-      // потери фактов не в том, что модель их выдумала, а в том, что она
-      // переписала ссылку по памяти вместо копирования из материалов.
-      const thisInput =
-        attempt === 0
-          ? input
-          : [
-              input,
-              `ВАЖНО: в поле url у каждого факта должен стоять ОДИН ИЗ ЭТИХ адресов, скопированный посимвольно:\n${allowedUrls
-                .map((u) => `— ${u}`)
-                .join("\n")}\nЛюбой другой адрес будет отброшен, и факт пропадёт.`,
-              // Повтору называем причину дословно: без неё модель повторяет
-              // ту же выдумку, и лишний вызов уходит впустую.
-              lastUnverified.length
-                ? `Предыдущая попытка не прошла проверку. Система сверяет КАЖДУЮ цифру в кадрах, слайдах и репликах с текстом открытых страниц и не нашла вот этого:\n${lastUnverified
-                    .map((u) => `— ${u}`)
-                    .join(
-                      "\n",
-                    )}\nБери только те числа, которые стоят в материалах выше. Не вычисляй новых: доли, разы и проценты, которых на странице нет, считаются выдумкой. И не пиши от первого лица о встречах, поездках и событиях — система не знает, где владелец был и с кем виделся.`
-                : "",
-            ]
-              .filter(Boolean)
-              .join("\n\n");
-      const answer = await askRef(client, ref, { system, input: thisInput, maxTokens: 16000 });
+      const answer = await askRef(client, ref, { system, input, maxTokens: 16000 });
       const parsed = FeedTopicDraftSchema.safeParse(extractJson(answer.text));
       if (!parsed.success) {
-        failures.push(
-          `${refLabel(ref)} — структура: ${parsed.error.issues
-            .slice(0, 3)
-            .map((i) => `${i.path.join(".")}: ${i.message}`)
-            .join("; ")}`,
-        );
+        failures.push(`${refLabel(ref)} — структура ответа не сошлась`);
         continue;
       }
       const draft = parsed.data;
 
-      // Ссылки в фактах обязаны вести на материалы, которые мы дали модели.
-      // Без этой проверки она охотно ставит правдоподобный, но выдуманный URL.
-      const facts: Fact[] = draft.facts.filter((f) => pages.some((m) => sameUrl(m.url, f.url)));
-
       /*
-       * Сверка готового контента со страницами. Это главная проверка в ленте,
-       * и добавлена она после настоящего провала: в кадр ушло «рост в
-       * 3,7-кратном темпе» — числа нет ни на странице, ни в фактах, ни в
-       * цитате, — и «я вернулся с конференции в Алматы», где владелец не был.
-       * Запрет на это стоит в промпте прямым текстом и доказанно не держит,
-       * поэтому проверяет код по тексту скачанных страниц.
+       * Та же сверка цифр, что раньше стояла в прогоне. Сверять есть с чем:
+       * проверенные факты темы и дословная цитата — это то, что код уже
+       * подтвердил по странице.
        */
+      const ground = [topic.facts.map((f) => f.fact).join(" "), topic.evidence, topic.summary, topic.details.join(" ")];
       const parts = [
         ...draft.stories.frames.map((f) => ({ where: `сторис, кадр ${f.n}`, text: f.text })),
         ...draft.carousel.slides.map((sl) => ({ where: `карусель, слайд ${sl.n}`, text: `${sl.title} ${sl.body}` })),
@@ -929,81 +931,64 @@ async function writeTopic(
         ...draft.reel.script.map((l, n) => ({ where: `рилс, реплика ${n + 1}`, text: l.text })),
         { where: "рилс, подпись", text: draft.reel.caption },
       ];
-      const pageTexts = pages.map((m) => m.text);
-      const badNumbers = checkNumbers(parts, pageTexts);
-      const badClaims = firstPersonClaims(parts);
       const unverified = [
-        ...badNumbers.map((b) => `${b.where}: числа ${b.value} нет ни на одной открытой странице`),
-        ...badClaims.map((b) => `${b.where}: «${b.value}…» — система не может знать, что это было`),
+        ...checkNumbers(parts, ground).map((b) => `${b.where}: числа ${b.value} нет в проверенных материалах темы`),
+        ...firstPersonClaims(parts).map((b) => `${b.where}: «${b.value}…» — система не может знать, что это было`),
       ];
 
-      const topic: FeedTopic = {
-        unverified,
-        id: `${date}-${kind}`,
-        kind,
-        title: draft.title.trim(),
-        angle: draft.angle.trim(),
-        whyNow: draft.whyNow.trim(),
-        audienceQuestion: draft.audienceQuestion.trim(),
-        facts,
-        // Источники темы — все открытые страницы, на которых она стоит.
-        sources: pages.map((m) => m.source),
-        mentions: [...new Set(pages.flatMap((m) => m.mentions))].slice(0, 6),
-        evidence: chosen.anchor.evidence,
-        credibility: chosen.anchor.credibility,
-        freshness: chosen.anchor.freshness,
-        stories: draft.stories,
-        carousel: draft.carousel,
-        reel: draft.reel,
-      };
-
-      /*
-       * Модель написала факты, но все их ссылки отбракованы — значит она
-       * переписала адреса по памяти. Это поправимо: пробуем следующую модель
-       * со списком допустимых адресов. Готовую тему держим про запас, чтобы
-       * не потерять её, если лучше уже не выйдет.
-       */
-      /*
-       * Выдуманная цифра или рассказ о несуществующем событии — повод
-       * переписать тему на другой модели, а не отдать как есть. Попытка
-       * стоит одного вызова, а цена пропуска — пост с выдуманной
-       * статистикой и настоящей ссылкой рядом.
-       */
-      const spoiled = facts.length === 0 && draft.facts.length > 0;
-      if ((unverified.length > 0 || spoiled) && attempt < order.length - 1) {
-        if (unverified.length) {
-          failures.push(`${refLabel(ref)} — не подтвердилось: ${unverified.slice(0, 2).join("; ")}`);
-        }
-        if (spoiled) failures.push(`${refLabel(ref)} — все ${draft.facts.length} фактов сослались не на те страницы`);
-        lastUnverified = unverified;
-        // Лучший из неудачных вариантов держим про запас: если следующая
-        // модель справится хуже или откажет, отдадим этот — с честной
-        // пометкой, а не потеряем оплаченную работу целиком.
-        if (!withoutFacts || unverified.length < withoutFacts.unverified.length) {
-          withoutFacts = topic;
-          withoutFactsVia = refLabel(ref);
-        }
+      // Непроверенное — повод переписать на другой модели, но не повод
+      // потерять работу: последняя попытка отдаётся с честной пометкой.
+      if (unverified.length && attempt < order.length - 1) {
+        failures.push(`${refLabel(ref)} — не подтвердилось: ${unverified.slice(0, 2).join("; ")}`);
         continue;
       }
 
-      return { topic, error: "", calls, via: refLabel(ref) };
+      const script: FeedScript = {
+        stories: draft.stories,
+        carousel: draft.carousel,
+        reel: draft.reel,
+        unverified,
+        model: refLabel(ref),
+        createdAt: now().toISOString(),
+      };
+      await saveFeed({
+        ...feed,
+        topics: feed.topics.map((t) => (t.kind === topic.kind ? { ...t, script } : t)),
+      });
+      await addUsage({ modelCalls: calls });
+      return { script, via: refLabel(ref), calls };
     } catch (e) {
       failures.push(`${refLabel(ref)} — ${describeModelError(e)}`);
     }
   }
+  throw new Error(failures.join(" | ") || "Сценарий написать не удалось.");
+}
 
-  // Лучше не вышло — отдаём то, что есть. Тема без проверяемых цифр всё
-  // равно стоит на открытом источнике и подтверждённой цитате, а интерфейс
-  // скажет прямо, что цифр в ней нет.
-  if (withoutFacts) {
-    return { topic: withoutFacts, error: "", calls, via: withoutFactsVia };
-  }
-  return {
-    topic: null,
-    error: failures.join(" | ") || "структура ответа не сошлась",
-    calls,
-    via: "",
-  };
+/** Дата вынесена в функцию, чтобы тесты могли её подменить. */
+function now(): Date {
+  return new Date();
+}
+
+/** Тема в текст для модели: только то, что код уже проверил. */
+function topicBlock(t: FeedTopic): string {
+  return [
+    `### ${t.title}`,
+    t.summary ? `О чём: ${t.summary}` : "",
+    t.details.length ? `Детали:\n${t.details.map((d) => `— ${d}`).join("\n")}` : "",
+    t.soWhat ? `Что это значит: ${t.soWhat}` : "",
+    t.whyNow ? `Почему сейчас: ${t.whyNow}` : "",
+    t.angle ? `Угол: ${t.angle}` : "",
+    t.audienceQuestion ? `Вопрос аудитории: ${t.audienceQuestion}` : "",
+    `Дословная цитата со страницы (проверена системой): «${t.evidence}»`,
+    t.facts.length
+      ? `Проверенные факты:\n${t.facts.map((f) => `— ${f.fact} (${f.source}, ${f.date}) ${f.url}`).join("\n")}`
+      : "Проверяемых цифр в теме нет — не выдумывай их.",
+    t.mentions.length
+      ? `Страница ссылается на первоисточники (только названия, адресов нет): ${t.mentions.join("; ")}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 /**

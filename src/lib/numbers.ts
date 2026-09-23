@@ -32,7 +32,18 @@ function digitsOf(text: string): string {
  */
 const MIN_PLAIN_INTEGER = 13;
 
-export function claimNumbers(text: string): string[] {
+/**
+ * Годы вокруг текущего. «В 2026 году алгоритмы работают так-то» — указание
+ * времени, а не утверждение о данных, и требовать его присутствия на
+ * странице бессмысленно. На живом прогоне именно это дало семь ложных
+ * срабатываний подряд и три лишних вызова модели на повторы.
+ */
+function nearbyYears(now: Date): Set<string> {
+  const y = now.getFullYear();
+  return new Set([y - 1, y, y + 1].map(String));
+}
+
+export function claimNumbers(text: string, ignore: ReadonlySet<string> = new Set()): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
   // Число целиком, с возможными разрядами и дробной частью.
@@ -45,6 +56,7 @@ export function claimNumbers(text: string): string[] {
     const hasFraction = value.includes(".");
     const asNumber = Number(value);
     if (!hasFraction && Number.isFinite(asNumber) && Math.abs(asNumber) < MIN_PLAIN_INTEGER) continue;
+    if (ignore.has(value)) continue;
     if (seen.has(value)) continue;
     seen.add(value);
     out.push(value);
@@ -73,10 +85,15 @@ export interface NumberCheck {
  * страницах нет: пустой список означает, что каждая цифра в контенте
  * действительно стоит на скачанной странице.
  */
-export function checkNumbers(parts: { where: string; text: string }[], pages: readonly string[]): NumberCheck[] {
+export function checkNumbers(
+  parts: { where: string; text: string }[],
+  pages: readonly string[],
+  now = new Date(),
+): NumberCheck[] {
   const bad: NumberCheck[] = [];
+  const ignore = nearbyYears(now);
   for (const part of parts) {
-    for (const value of claimNumbers(part.text)) {
+    for (const value of claimNumbers(part.text, ignore)) {
       if (!numberOnPages(value, pages)) bad.push({ where: part.where, value });
     }
   }

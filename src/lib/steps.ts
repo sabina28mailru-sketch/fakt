@@ -30,6 +30,6 @@ export const FEED_STEPS: (StepDef<FeedStepId> & { id: FeedStepId })[] = [
   { weight: 0.08, id: "agenda", title: "Повестка", hint: "Запросы по трём типам тем" },
   { weight: 0.14, id: "search", title: "Поиск", hint: "Свежие публикации по нише" },
   { weight: 0.14, id: "open", title: "Открытие", hint: "Страницы целиком, не сниппеты" },
-  { weight: 0.34, id: "select", title: "Отбор оснований", hint: "Цитата сверяется с текстом страницы" },
-  { weight: 0.3, id: "write", title: "Три формата", hint: "Сторис · карусель · рилс на каждую тему" },
+  { weight: 0.56, id: "select", title: "Разбор материалов", hint: "Цитата сверяется с текстом страницы" },
+  { weight: 0.08, id: "write", title: "Сборка тем", hint: "Факты сверяются с текстом страниц" },
 ];

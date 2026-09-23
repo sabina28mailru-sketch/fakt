@@ -3,7 +3,16 @@
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "framer-motion";
 import { Newspaper } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DailyFeed, Edition, FeedEvent, FeedKind, PipelineEvent, ResearchResult, Settings } from "@/lib/schema";
+import type {
+  DailyFeed,
+  Edition,
+  FeedEvent,
+  FeedKind,
+  FeedScript,
+  PipelineEvent,
+  ResearchResult,
+  Settings,
+} from "@/lib/schema";
 import { FEED_STEPS, STEPS } from "@/lib/steps";
 import { formatTimeRu, todayIso } from "@/lib/utils";
 import { BriefView } from "./BriefView";
@@ -75,6 +84,8 @@ function Shell({ initialEditions, initialSettings, initialTags, initialResearch,
   const [feeds, setFeeds] = useState<DailyFeed[]>(initialFeeds ?? []);
   /** Какой день ленты открыт. Пусто — сегодняшний. */
   const [feedDate, setFeedDate] = useState<string | undefined>(undefined);
+  /** Для какой темы сейчас пишется сценарий. Блокирует повторное нажатие. */
+  const [writingKind, setWritingKind] = useState<FeedKind | undefined>(undefined);
   // «Сегодня» — главный экран: день начинается с него, а не с архива выпусков.
   const [view, setView] = useState<View>("today");
   const [pipeline, setPipeline] = useState<PipelineState>(() => emptyPipeline(STEPS));
@@ -293,6 +304,44 @@ function Shell({ initialEditions, initialSettings, initialTags, initialResearch,
     }
   }, [apply, preview, running, today, toast]);
 
+  /**
+   * Заказать сценарий для одной темы. Отдельно от сборки ленты: раздел
+   * приносит разбор новости, а три формата пишутся для той темы, которую
+   * владелец выбрал. Это один вызов модели вместо трёх на каждый прогон.
+   */
+  const writeScript = useCallback(
+    async (kind: FeedKind) => {
+      if (preview || writingKind) return;
+      setWritingKind(kind);
+      try {
+        const res = await fetch("/api/feed/script", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ date: shownFeed?.date ?? today, kind }),
+        });
+        const body = (await res.json().catch(() => ({}))) as { script?: FeedScript; error?: string };
+        if (!res.ok || !body.script) throw new Error(body.error ?? `Сервер ответил ${res.status}`);
+        const script = body.script;
+        const date = shownFeed?.date ?? today;
+        setFeeds((prev) =>
+          prev.map((f) =>
+            f.date === date ? { ...f, topics: f.topics.map((t) => (t.kind === kind ? { ...t, script } : t)) } : f,
+          ),
+        );
+        toast(
+          script.unverified.length
+            ? `Сценарий готов, но ${script.unverified.length} утверждений не подтвердилось`
+            : "Сценарий готов",
+        );
+      } catch (e) {
+        toast(e instanceof Error ? e.message : String(e));
+      } finally {
+        setWritingKind(undefined);
+      }
+    },
+    [preview, shownFeed, today, toast, writingKind],
+  );
+
   const saveSettings = useCallback(async (s: Settings) => {
     const res = await fetch("/api/settings", {
       method: "PUT",
@@ -443,6 +492,8 @@ function Shell({ initialEditions, initialSettings, initialTags, initialResearch,
                     feeds={feeds}
                     date={today}
                     onPickDate={setFeedDate}
+                    onWriteScript={writeScript}
+                    writing={writingKind}
                     running={running}
                     preview={preview}
                     onGenerate={generateFeed}
