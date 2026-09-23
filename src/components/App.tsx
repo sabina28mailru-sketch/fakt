@@ -22,7 +22,14 @@ import { ResearchView } from "./ResearchView";
 import { TodayView } from "./TodayView";
 import { EASE, T } from "./motion";
 import { Nav, type NavStatus, type View } from "./Nav";
-import { PipelinePanel, PipelineSummaryBar, emptyPipeline, type PipelineState } from "./PipelinePanel";
+import {
+  EDITION_TITLES,
+  FEED_TITLES,
+  PipelinePanel,
+  PipelineSummaryBar,
+  emptyPipeline,
+  type PipelineState,
+} from "./PipelinePanel";
 import { TopBar } from "./TopBar";
 import { Button } from "./ui/Button";
 import { ToastProvider, useToast } from "./ui/Toast";
@@ -151,7 +158,10 @@ function Shell({ initialEditions, initialSettings, initialTags, initialResearch,
       if (event.type === "step") {
         next.steps[event.step] = { status: event.status, detail: event.detail };
       } else if (event.type === "log") {
-        next.logs = [...p.logs, { id: p.logs.length + 1, kind: event.kind, text: event.text, at: Date.now() }];
+        next.logs = [
+          ...p.logs,
+          { id: p.logs.length + 1, kind: event.kind, text: event.text, at: Date.now(), tech: event.tech },
+        ];
       } else if (event.type === "error") {
         next.status = "error";
         next.error = event.message;
@@ -475,6 +485,7 @@ function Shell({ initialEditions, initialSettings, initialTags, initialResearch,
                 preview={preview}
                 steps={panelKind === "feed" ? FEED_STEPS : STEPS}
                 kicker={panelKind === "feed" ? "Лента дня" : "Конвейер"}
+                titles={panelKind === "feed" ? FEED_TITLES : EDITION_TITLES}
                 onClose={() => setPanelOpen(false)}
               />
             )}
@@ -482,7 +493,11 @@ function Shell({ initialEditions, initialSettings, initialTags, initialResearch,
 
           {/* Панель скрыта, но прогон был: свёрнутая полоса возвращает её без нового запуска. */}
           {!panelOpen && panelHere && pipeline.status !== "idle" && (
-            <PipelineSummaryBar state={pipeline} onOpen={() => setPanelOpen(true)} />
+            <PipelineSummaryBar
+              state={pipeline}
+              titles={panelKind === "feed" ? FEED_TITLES : EDITION_TITLES}
+              onOpen={() => setPanelOpen(true)}
+            />
           )}
 
           <main

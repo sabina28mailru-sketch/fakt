@@ -56,6 +56,8 @@ interface LogLine {
   // однажды разошёлся с оригиналом и молча ронял сборку.
   kind: Extract<ResearchEvent, { type: "log" }>["kind"];
   text: string;
+  /** Подробность для разбора, а не ход работы: по умолчанию скрыта. */
+  tech?: boolean;
 }
 
 const KIND_COLOR: Record<LogLine["kind"], string> = {
@@ -64,7 +66,6 @@ const KIND_COLOR: Record<LogLine["kind"], string> = {
   result: "text-muted",
   info: "text-fg",
   warn: "text-warn",
-  tech: "text-faint",
 };
 
 const FRESHNESS_LABEL: Record<ResearchMaterial["freshness"], string> = {
@@ -105,8 +106,8 @@ export function ResearchView({
    * быть виден собственно ход работы. Не выброшены, а убраны под кнопку.
    */
   const [showTech, setShowTech] = useState(false);
-  const shownLogs = useMemo(() => (showTech ? logs : logs.filter((l) => l.kind !== "tech")), [logs, showTech]);
-  const techCount = useMemo(() => logs.filter((l) => l.kind === "tech").length, [logs]);
+  const shownLogs = useMemo(() => (showTech ? logs : logs.filter((l) => !l.tech)), [logs, showTech]);
+  const techCount = useMemo(() => logs.filter((l) => l.tech).length, [logs]);
   const [result, setResult] = useState<ResearchResult | undefined>(initialResult);
   const [error, setError] = useState("");
   const [showRejected, setShowRejected] = useState(false);
@@ -186,7 +187,7 @@ export function ResearchView({
             } else if (event.type === "log") {
               counter += 1;
               const id = counter;
-              setLogs((l) => [...l, { id, kind: event.kind, text: event.text }]);
+              setLogs((l) => [...l, { id, kind: event.kind, text: event.text, tech: event.tech }]);
             } else if (event.type === "error") {
               setError(event.message);
               setSteps((s) => {
@@ -401,7 +402,7 @@ export function ResearchView({
                   aria-label="Ход исследования"
                 >
                   {shownLogs.map((l) => (
-                    <div key={l.id} className={cn("t-log", KIND_COLOR[l.kind])}>
+                    <div key={l.id} className={cn("t-log", l.tech ? "text-faint" : KIND_COLOR[l.kind])}>
                       {l.text}
                     </div>
                   ))}

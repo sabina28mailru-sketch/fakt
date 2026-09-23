@@ -23,7 +23,7 @@ import {
   siftRotation,
   writeRotation,
 } from "./model";
-import { openLogKind, openPages, tavilySearchMany, type SearchHit } from "./search";
+import { isTechLog, openPages, tavilySearchMany, type SearchHit } from "./search";
 import { ageInDays, freshnessOf, scoreCredibility, type CredibilitySignals } from "./credibility";
 import { conceptInText, evidenceInText, titleOverlap, words } from "./text-match";
 import {
@@ -374,7 +374,7 @@ export async function* runFeed(opts: FeedOptions): AsyncGenerator<FeedEvent> {
       key,
       candidates.map((c) => c.url),
       (kind, text) => {
-        openLogs.push({ type: "log", kind: openLogKind(kind), text });
+        openLogs.push({ type: "log", kind, text, tech: isTechLog(kind) });
       },
     );
     for (const line of openLogs) yield line;
@@ -471,7 +471,7 @@ export async function* runFeed(opts: FeedOptions): AsyncGenerator<FeedEvent> {
       pending.delete(ci);
       readyChunks++;
       modelCalls += res.calls;
-      if (res.note) yield { type: "log", kind: "tech", text: res.note };
+      if (res.note) yield { type: "log", kind: "result", text: res.note, tech: true };
       if (Array.isArray(res.items)) rawItems.push(...res.items);
       else if (res.error) yield { type: "log", kind: "warn", text: `Пачка страниц не разобралась: ${res.error}` };
       yield {

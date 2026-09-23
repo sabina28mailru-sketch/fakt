@@ -11,7 +11,7 @@ import {
   type Settings,
   type SourceKind,
 } from "./schema";
-import { openLogKind, openPages, tavilySearchMany, type SearchHit } from "./search";
+import { isTechLog, openPages, tavilySearchMany, type SearchHit } from "./search";
 import { ageInDays, freshnessOf, scoreCredibility, type CredibilitySignals } from "./credibility";
 import { askFast, askRef, describeModelError, lanesFor, refLabel, siftRotation } from "./model";
 import { hostOf } from "./utils";
@@ -378,7 +378,7 @@ export async function* runResearch(opts: ResearchOptions): AsyncGenerator<Resear
 
     const logs: ResearchEvent[] = [];
     const opened = await openPages(searchKey, candidates.map((c) => c.url), (kind, text) => {
-      logs.push({ type: "log", kind: openLogKind(kind), text });
+      logs.push({ type: "log", kind, text, tech: isTechLog(kind) });
     });
     for (const log of logs) yield log;
     credits += opened.credits;
@@ -488,7 +488,7 @@ export async function* runResearch(opts: ResearchOptions): AsyncGenerator<Resear
       );
       pending.delete(ci);
       readyChunks++;
-      if (res.note) yield { type: "log", kind: "tech", text: res.note };
+      if (res.note) yield { type: "log", kind: "result", text: res.note, tech: true };
       if (Array.isArray(res.items)) items.push(...res.items);
       else if (res.error) yield { type: "log", kind: "warn", text: `Пачка страниц не разобралась: ${res.error}` };
       yield {

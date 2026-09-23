@@ -22,7 +22,7 @@ import {
   type ModelAnswer,
 } from "./model";
 import { createQuotaNotice } from "./quota-notice";
-import { openLogKind, openPages, tavilySearch, type SearchHit } from "./search";
+import { isTechLog, openPages, tavilySearch, type SearchHit } from "./search";
 import { BUCKETS, type SourceBucket } from "./sources";
 import { addUsage, nextEditionId, saveEdition } from "./store";
 import { verifyEdition } from "./verify-edition";
@@ -287,7 +287,7 @@ export async function* runPipeline(opts: PipelineOptions): AsyncGenerator<Pipeli
           wake = null;
         };
         const pending = openPages(searchKey, urls, (kind, text) => {
-          emit({ type: "log", kind: openLogKind(kind), text });
+          emit({ type: "log", kind, text, tech: isTechLog(kind) });
           // kind === "result" — это строки «Открыто: …» и «Открыто через Tavily: …».
           if (kind === "result") {
             openedCount += 1;

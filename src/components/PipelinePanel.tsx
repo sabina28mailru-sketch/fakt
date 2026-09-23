@@ -23,7 +23,7 @@ import { CopyButton } from "./ui/CopyButton";
 
 export type StepState = { status: "idle" | "running" | "done" | "error"; detail?: string };
 export type LogKind = Extract<PipelineEvent, { type: "log" }>["kind"];
-export type LogItem = { id: number; kind: LogKind; text: string; at: number };
+export type LogItem = { id: number; kind: LogKind; text: string; at: number; tech?: boolean };
 
 export interface PipelineState {
   status: "idle" | "running" | "done" | "error" | "cancelled";
@@ -50,7 +50,6 @@ const LOG_KINDS: { kind: LogKind; label: string }[] = [
   { kind: "result", label: "Найдено" },
   { kind: "info", label: "Ход работы" },
   { kind: "warn", label: "Предупреждения" },
-  { kind: "tech", label: "Техническое" },
 ];
 
 const KIND_COLOR: Record<LogKind, string> = {
@@ -59,35 +58,42 @@ const KIND_COLOR: Record<LogKind, string> = {
   result: "text-muted",
   info: "text-fg",
   warn: "text-warn",
-  tech: "text-faint",
 };
 
-/*
- * Что показываем сразу. Технические строки выключены намеренно: их
- * больше, чем всех остальных вместе, и за перечнем открытых доменов и
- * времени разбора каждой пачки переставало быть видно, что вообще
- * происходит. Они никуда не делись — одно нажатие, и они здесь.
- */
 const ALL_VISIBLE: Record<LogKind, boolean> = {
   search: true,
   fetch: true,
   result: true,
   info: true,
   warn: true,
-  tech: false,
 };
 
 function clock(at: number) {
   return new Date(at).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
-function titleFor(state: PipelineState, preview?: boolean) {
+/**
+ * Как называть то, что собирается.
+ *
+ * Панель одна на оба конвейера, а слова у них разные: «Выпуск готов» под
+ * заголовком «Лента дня» — это про другое и в другом роде. Русский тут не
+ * даёт схитрить одним словом, поэтому обе формы передаются целиком.
+ */
+export interface RunTitles {
+  running: string;
+  done: string;
+}
+
+export const EDITION_TITLES: RunTitles = { running: "Собираю выпуск", done: "Выпуск готов" };
+export const FEED_TITLES: RunTitles = { running: "Собираю ленту", done: "Лента готова" };
+
+function titleFor(state: PipelineState, titles: RunTitles, preview?: boolean) {
   if (preview) return "Как работает генерация";
   switch (state.status) {
     case "running":
-      return "Собираю выпуск";
+      return titles.running;
     case "done":
-      return "Выпуск готов";
+      return titles.done;
     case "error":
       return "Остановлено с ошибкой";
     case "cancelled":
@@ -132,7 +138,15 @@ function useElapsed(state: PipelineState) {
  * Свёрнутая полоса конвейера: после «Скрыть» прогон не пропадает бесследно —
  * строка остаётся кликабельной и возвращает панель.
  */
-export function PipelineSummaryBar({ state, onOpen }: { state: PipelineState; onOpen: () => void }) {
+export function PipelineSummaryBar({
+  state,
+  onOpen,
+  titles = EDITION_TITLES,
+}: {
+  state: PipelineState;
+  onOpen: () => void;
+  titles?: RunTitles;
+}) {
   const elapsed = useElapsed(state);
   const running = state.status === "running";
   const counts = useMemo(() => {
@@ -150,7 +164,7 @@ export function PipelineSummaryBar({ state, onOpen }: { state: PipelineState; on
   if (state.status === "idle" && state.logs.length === 0) return null;
 
   const head = running
-    ? "Собираю выпуск"
+    ? titles.running
     : state.status === "cancelled"
       ? "Прогон остановлен"
       : state.status === "error"
@@ -193,6 +207,7 @@ export function PipelinePanel({
   preview,
   steps = STEPS,
   kicker = "Конвейер",
+  titles = EDITION_TITLES,
 }: {
   state: PipelineState;
   onClose: () => void;
@@ -201,6 +216,8 @@ export function PipelinePanel({
   steps?: StepDef[];
   /** Что за конвейер идёт: «Конвейер» для выпуска, «Лента дня» для раздела «Сегодня». */
   kicker?: string;
+  /** Как называть собираемое: у ленты и выпуска разные слова и разный род. */
+  titles?: RunTitles;
 }) {
   const logRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
@@ -213,16 +230,27 @@ export function PipelinePanel({
   const elapsed = useElapsed(state);
 
   const [visible, setVisible] = useState<Record<LogKind, boolean>>(ALL_VISIBLE);
+  /*
+   * Технические строки скрыты намеренно: их больше, чем всех остальных
+   * вместе, и за перечнем открытых доменов и временем разбора каждой пачки
+   * переставало быть видно, что вообще происходит. Они никуда не делись —
+   * одно нажатие, и они здесь.
+   */
+  const [showTech, setShowTech] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [unseen, setUnseen] = useState(0);
 
   const counts = useMemo(() => {
-    const acc: Record<LogKind, number> = { search: 0, fetch: 0, result: 0, info: 0, warn: 0, tech: 0 };
+    const acc: Record<LogKind, number> = { search: 0, fetch: 0, result: 0, info: 0, warn: 0 };
     for (const l of state.logs) acc[l.kind] += 1;
     return acc;
   }, [state.logs]);
 
-  const shown = useMemo(() => state.logs.filter((l) => visible[l.kind]), [state.logs, visible]);
+  const techCount = useMemo(() => state.logs.filter((l) => l.tech).length, [state.logs]);
+  const shown = useMemo(
+    () => state.logs.filter((l) => visible[l.kind] && (showTech || !l.tech)),
+    [state.logs, visible, showTech],
+  );
   const logText = useMemo(() => state.logs.map((l) => `${clock(l.at)}  ${l.text}`).join("\n"), [state.logs]);
 
   const stickToBottom = useCallback(() => {
@@ -315,7 +343,7 @@ export function PipelinePanel({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="t-label mb-2">{kicker}</div>
-            <h2 className="t-d2">{titleFor(state, preview)}</h2>
+            <h2 className="t-d2">{titleFor(state, titles, preview)}</h2>
             <p className="t-body-sm mt-2 max-w-[62ch] text-muted">
               {preview
                 ? "В превью генерация выключена: конвейер ходит в интернет через API и запускается только в локальной версии. Ниже — что происходит на каждом шаге."
@@ -432,6 +460,21 @@ export function PipelinePanel({
                     <span className="tabular">{counts[kind]}</span>
                   </button>
                 ))}
+                {techCount > 0 && (
+                  <button
+                    type="button"
+                    aria-pressed={showTech}
+                    onClick={() => setShowTech((v) => !v)}
+                    className={cn(
+                      "t-meta inline-flex h-7 items-center gap-1.5 rounded-[4px] border px-2.5 uppercase transition-colors duration-150",
+                      "[@media(pointer:coarse)]:min-h-11",
+                      showTech ? "border-line-strong text-fg" : "border-line text-faint line-through",
+                    )}
+                  >
+                    Техническое
+                    <span className="tabular">{techCount}</span>
+                  </button>
+                )}
                 <div className="ml-auto flex items-center gap-2">
                   <CopyButton variant="ghost" size="sm" text={logText} label="Копировать лог" doneLabel="Лог скопирован" />
                   <Button size="sm" variant="ghost" onClick={() => setExpanded((v) => !v)} aria-expanded={expanded}>
@@ -458,7 +501,9 @@ export function PipelinePanel({
                   {shown.map((l) => (
                     <div key={l.id} className="flex gap-2">
                       <span className="tabular w-[68px] shrink-0 text-faint">{clock(l.at)}</span>
-                      <span className={cn("min-w-0 break-words", KIND_COLOR[l.kind])}>{linkify(l.text)}</span>
+                      <span className={cn("min-w-0 break-words", l.tech ? "text-faint" : KIND_COLOR[l.kind])}>
+                        {linkify(l.text)}
+                      </span>
                     </div>
                   ))}
                 </div>
