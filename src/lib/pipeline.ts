@@ -21,6 +21,7 @@ import {
   writeRotation,
   type ModelAnswer,
 } from "./model";
+import { createQuotaNotice } from "./quota-notice";
 import { openLogKind, openPages, tavilySearch, type SearchHit } from "./search";
 import { BUCKETS, type SourceBucket } from "./sources";
 import { addUsage, nextEditionId, saveEdition } from "./store";
@@ -148,6 +149,16 @@ export async function* runPipeline(opts: PipelineOptions): AsyncGenerator<Pipeli
   const mechanical = siftRotation(settings.model);
   const geminiOnly = geminiRotation(settings.model);
   const forWriting = writeRotation(settings.model, 0);
+  /*
+   * Подмена модели работает молча, и это правильно — прогон не должен
+   * останавливаться. Но один раз сказать о ней стоит: дальше текст пишет
+   * запасная модель, и слог будет другим.
+   */
+  const quotaNotice = createQuotaNotice(settings.model);
+  const quotaLine = (failures: string[]): PipelineEvent[] => {
+    const said = quotaNotice(failures);
+    return said ? [{ type: "log", kind: "warn", text: said }] : [];
+  };
   const startedAt = Date.now();
   const weekday = weekdayRu(date);
   const rubric = settings.brief.rubrics[rubricIndex(date)] ?? settings.brief.rubrics[0];
@@ -181,6 +192,7 @@ export async function* runPipeline(opts: PipelineOptions): AsyncGenerator<Pipeli
         .join("\n\n"),
     });
     account(plan.answer);
+    yield* quotaLine(plan.failures);
     const queries = parseQueries(plan.answer.text, settings.maxSearches);
     yield { type: "log", kind: "info", text: `План: ${queries.length} запросов · ${plan.via}.` };
 
@@ -225,6 +237,7 @@ export async function* runPipeline(opts: PipelineOptions): AsyncGenerator<Pipeli
       input: `Сегодня ${weekday}, ${formatDateRu(date)}. Рубрика дня: ${rubric}.\n\nРЕЗУЛЬТАТЫ ПОИСКА:\n\n${hitsToText(hits)}`,
     });
     account(research.answer);
+    yield* quotaLine(research.failures);
     const researchNotes = research.answer.text;
     if (researchNotes.trim().length < 200) {
       throw new Error("Ресерч вернул почти пустые заметки — проверьте модель.");
@@ -252,6 +265,7 @@ export async function* runPipeline(opts: PipelineOptions): AsyncGenerator<Pipeli
         input: `ЗАМЕТКИ РЕСЕРЧА:\n\n${researchNotes}`,
       });
       account(pick.answer);
+      yield* quotaLine(pick.failures);
       const urls = parseUrls(pick.answer.text, settings.maxFetches);
 
       if (urls.length) {
@@ -327,6 +341,7 @@ export async function* runPipeline(opts: PipelineOptions): AsyncGenerator<Pipeli
       input: `Сегодня ${weekday}, ${formatDateRu(date)}.\n\nЗАМЕТКИ РЕСЕРЧА:\n\n${researchNotes}\n\nТЕКСТЫ ОТКРЫТЫХ СТРАНИЦ:\n\n${pagesBlock}${failedBlock}`,
     });
     account(verified.answer);
+    yield* quotaLine(verified.failures);
     const verifiedNotes = verified.answer.text;
     yield { type: "log", kind: "result", text: `Факты сверил ${verified.via}.` };
     yield { type: "step", step: "verify", status: "done", detail: `${fetches} страниц открыто` };
@@ -362,6 +377,7 @@ export async function* runPipeline(opts: PipelineOptions): AsyncGenerator<Pipeli
               ].join("\n\n"),
       });
       account(write.answer);
+      yield* quotaLine(write.failures);
       draftText = write.answer.text;
       yield { type: "log", kind: "result", text: `Выпуск написал ${write.via}.` };
       yield { type: "step", step: "write", status: "done" };
