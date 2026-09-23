@@ -1,0 +1,42 @@
+# Проверка на каждый push и pull request.
+#
+# Те же три команды, что стоят в CLAUDE.md как обязательные перед коммитом.
+# Смысл в том, чтобы сломанное состояние нельзя было не заметить: локально
+# проверку легко пропустить, а здесь она идёт всегда и видна в истории.
+#
+# Ключи API не нужны: сборка не ходит в интернет. Страница читает data/
+# на каждый запрос (connection() в page.tsx), поэтому на этапе сборки
+# ни модель, ни поиск не вызываются.
+
+name: Проверка
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      # ci, а не install: ставит ровно то, что записано в package-lock.json.
+      - name: Зависимости
+        run: npm ci
+
+      - name: Типы
+        run: npm run typecheck
+
+      - name: Линтер
+        run: npm run lint
+
+      - name: Сборка
+        run: npm run build

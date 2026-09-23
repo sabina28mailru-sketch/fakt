@@ -1,0 +1,176 @@
+import type { DailyFeed, Edition, FeedTopic } from "./schema";
+import { CONFIDENCE_LABEL, FEED_KIND_LABEL, LEVEL_LABEL } from "./utils";
+
+/* ---------- Отдельные фрагменты ----------
+   То, что владелец вставляет в Instagram: чистый текст без служебных пометок.
+   Массовые варианты ниже (storiesToText и прочие) сохраняют пометки для работы. */
+
+export function frameText(f: Edition["stories"]["frames"][number]) {
+  return f.text;
+}
+
+export function slideText(s: Edition["carousel"]["slides"][number]) {
+  return `${s.title}\n\n${s.body}`;
+}
+
+export function reelLineText(l: Edition["reel"]["script"][number]) {
+  return l.text;
+}
+
+/** Все кадры подряд — только тексты на экране, без «Кадр 3 — селфи-видео». */
+export function storiesTextsOnly(e: Edition) {
+  return e.stories.frames.map((f) => f.text).join("\n\n");
+}
+
+/** Все слайды подряд — заголовок и тело, без «Слайд 4.». */
+export function carouselTextsOnly(e: Edition) {
+  return e.carousel.slides.map((s) => `${s.title}\n\n${s.body}`).join("\n\n");
+}
+
+/** Реплики рилса без тайм-кодов. */
+export function reelTextsOnly(e: Edition) {
+  return [e.reel.hook, ...e.reel.script.map((l) => l.text), e.reel.cta].join("\n\n");
+}
+
+export function storiesToText(e: Edition) {
+  return e.stories.frames
+    .map((f) => {
+      const lines = [`Кадр ${f.n} — ${f.visual}`, f.text];
+      if (f.interactive) lines.push(`Интерактив: ${f.interactive}`);
+      return lines.join("\n");
+    })
+    .join("\n\n");
+}
+
+export function carouselToText(e: Edition) {
+  const slides = e.carousel.slides
+    .map((s) => `Слайд ${s.n}. ${s.title}\n${s.body}`)
+    .join("\n\n");
+  return `${slides}\n\nПодпись к посту:\n${e.carousel.caption}`;
+}
+
+export function reelToText(e: Edition) {
+  const script = e.reel.script.map((l) => `${l.time} — ${l.text}`).join("\n");
+  return [
+    `Хук: ${e.reel.hook}`,
+    script,
+    `Надписи на экране: ${e.reel.captions.join(" · ")}`,
+    `Призыв: ${e.reel.cta}`,
+    `Подпись к рилсу:\n${e.reel.caption}`,
+  ].join("\n\n");
+}
+
+export function factsToText(e: Edition) {
+  return e.facts
+    .map(
+      (f, i) =>
+        `${i + 1}. ${f.fact}\n   ${f.source} — ${f.url} — ${f.date} — ${LEVEL_LABEL[f.level]} — уверенность: ${CONFIDENCE_LABEL[f.confidence]}${f.note ? ` — ${f.note}` : ""}`,
+    )
+    .join("\n");
+}
+
+export function editionToText(e: Edition) {
+  return [
+    `ВЫПУСК ${e.date} · ${e.weekday} · ${e.rubric}`,
+    `ТЕМА ДНЯ: ${e.topic.title}\n${e.topic.whyNow}`,
+    `СТОРИС\n${storiesToText(e)}`,
+    `КАРУСЕЛЬ\n${carouselToText(e)}`,
+    `РИЛС\n${reelToText(e)}`,
+    `ЭКСПЕРТНАЯ ЛИНЗА\n${e.expertLens.map((q) => `«${q.quote}» — ${q.name}${q.role ? `, ${q.role}` : ""} (${q.source}, ${q.date}) ${q.url}`).join("\n\n")}`,
+    `ФАКТЫ И ИСТОЧНИКИ\n${factsToText(e)}`,
+    `ЗАПАСНЫЕ ТЕМЫ\n${e.backupTopics.map((t) => `— ${t.title} (${t.url})${t.note ? ` — ${t.note}` : ""}`).join("\n")}`,
+    e.unverified.length ? `НЕ УДАЛОСЬ ПРОВЕРИТЬ\n${e.unverified.map((u) => `— ${u}`).join("\n")}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+/* ---------- Лента дня ----------
+   Темы ленты устроены как выпуск, но с полем idea у каждого формата:
+   замысел подачи владельцу нужен, когда он берётся снимать. */
+
+export function feedStoriesToText(t: FeedTopic) {
+  const frames = t.stories.frames
+    .map((f) => {
+      const lines = [`Кадр ${f.n} — ${f.visual}`, f.text];
+      if (f.interactive) lines.push(`Интерактив: ${f.interactive}`);
+      return lines.join("\n");
+    })
+    .join("\n\n");
+  return `Замысел: ${t.stories.idea}\n\n${frames}`;
+}
+
+export function feedCarouselToText(t: FeedTopic) {
+  const slides = t.carousel.slides.map((s) => `Слайд ${s.n}. ${s.title}\n${s.body}`).join("\n\n");
+  return `Замысел: ${t.carousel.idea}\n\n${slides}\n\nПодпись к посту:\n${t.carousel.caption}`;
+}
+
+export function feedReelToText(t: FeedTopic) {
+  const script = t.reel.script.map((l) => `${l.time} — ${l.text}`).join("\n");
+  return [
+    `Замысел: ${t.reel.idea}`,
+    `Хук: ${t.reel.hook}`,
+    script,
+    t.reel.captions.length ? `Надписи на экране: ${t.reel.captions.join(" · ")}` : "",
+    `Призыв: ${t.reel.cta}`,
+    `Подпись к рилсу:\n${t.reel.caption}`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+/** Только тексты на экране — то, что вставляют в Instagram без пометок. */
+export function feedStoriesTextsOnly(t: FeedTopic) {
+  return t.stories.frames.map((f) => f.text).join("\n\n");
+}
+
+export function feedCarouselTextsOnly(t: FeedTopic) {
+  return t.carousel.slides.map((s) => `${s.title}\n\n${s.body}`).join("\n\n");
+}
+
+export function feedReelTextsOnly(t: FeedTopic) {
+  return [t.reel.hook, ...t.reel.script.map((l) => l.text), t.reel.cta].join("\n\n");
+}
+
+export function feedSourcesToText(t: FeedTopic) {
+  return t.sources
+    .map((s) => `— ${s.title} (${s.outlet}${s.date ? `, ${s.date}` : ""}) ${s.url}${s.opened ? " [открыт]" : ""}`)
+    .join("\n");
+}
+
+export function feedTopicToText(t: FeedTopic) {
+  return [
+    `${FEED_KIND_LABEL[t.kind].toUpperCase()}: ${t.title}`,
+    `Угол: ${t.angle}`,
+    `Почему сейчас: ${t.whyNow}`,
+    t.audienceQuestion ? `Вопрос аудитории: ${t.audienceQuestion}` : "",
+    `СТОРИС\n${feedStoriesToText(t)}`,
+    `КАРУСЕЛЬ\n${feedCarouselToText(t)}`,
+    `РИЛС\n${feedReelToText(t)}`,
+    t.facts.length
+      ? `ФАКТЫ\n${t.facts
+          .map(
+            (f, i) =>
+              `${i + 1}. ${f.fact}\n   ${f.source} — ${f.url} — ${f.date} — ${LEVEL_LABEL[f.level]} — уверенность: ${CONFIDENCE_LABEL[f.confidence]}`,
+          )
+          .join("\n")}`
+      : "",
+    `ИСТОЧНИКИ (достоверность ${t.credibility.score} из 100)\n${feedSourcesToText(t)}`,
+    t.mentions.length
+      ? `НАЗВАНЫ НА СТРАНИЦЕ — адресов нет, ставить их в контент нельзя\n${t.mentions.map((m) => `— ${m}`).join("\n")}`
+      : "",
+    t.evidence ? `ПОДТВЕРЖДЕНИЕ СО СТРАНИЦЫ\n«${t.evidence}»` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+export function feedToText(f: DailyFeed) {
+  return [
+    `ЛЕНТА ЗА ${f.date} · ${f.weekday}`,
+    f.shortfall,
+    ...f.topics.map((t, i) => `ТЕМА №${i + 1}\n${feedTopicToText(t)}`),
+  ]
+    .filter(Boolean)
+    .join("\n\n════════════════════\n\n");
+}

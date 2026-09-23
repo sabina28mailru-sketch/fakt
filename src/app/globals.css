@@ -1,0 +1,535 @@
+@import "tailwindcss";
+
+/* ══════════════════════════════════════════════════════════════════
+   Fakt Broadsheet — дизайн-система.
+
+   Принцип: интерфейс набирается как утренняя полоса. Моноширинный
+   набор закреплён за всем, что пришло из данных (дата, домен, уровень,
+   уверенность, тайм-код, счётчики), Manrope — за авторским текстом.
+   Читатель видит границу «машина / автор» без легенды.
+
+   Тёмная тема по умолчанию; светлая — через prefers-color-scheme
+   или data-theme="light" на <html>. Светлый блок продублирован дважды
+   и правится синхронно.
+
+   Контрасты проверены по WCAG 2.1; значения в комментариях — к --bg.
+   ══════════════════════════════════════════════════════════════════ */
+
+:root {
+  color-scheme: dark;
+
+  /* Плоскости: чистый чёрный, подложки почти неразличимы */
+  --bg: #000000;
+  --surface: #0a0a0c;
+  --surface-2: rgba(31, 41, 55, 0.5);
+  --surface-3: rgba(55, 65, 81, 0.5);
+
+  /* Линии: едва заметные */
+  --line: rgba(31, 41, 55, 0.6);
+  --line-strong: #374151;
+  --rule: rgba(255, 255, 255, 0.04);
+
+  /* Текст */
+  --fg: #ffffff;
+  --fg-soft: rgba(255, 255, 255, 0.72);
+  --muted: #9ca3af;
+  --faint: #6b7280;
+
+  /* Акцент монохромный: белое на чёрном и есть акцент */
+  --accent: #ffffff;
+  --accent-2: rgba(255, 255, 255, 0.6);
+  --accent-fg: #000000;
+  --accent-soft: rgba(255, 255, 255, 0.1);
+
+  /* Достоверность: приглушённые, чтобы не спорить с монохромом */
+  --ok: #34d399;
+  --ok-soft: rgba(52, 211, 153, 0.12);
+  --warn: #fbbf24;
+  --warn-soft: rgba(251, 191, 36, 0.12);
+  --bad: #fb7185;
+  --bad-soft: rgba(251, 113, 133, 0.12);
+
+  /* Уровни фактов — только индикатор, слово дублирует цвет всегда */
+  --lv-world: #9ca3af;
+  --lv-world-soft: rgba(156, 163, 175, 0.12);
+  --lv-kz: #fafafa;
+  --lv-kz-soft: rgba(250, 250, 250, 0.12);
+  --lv-cis: #a78bfa;
+  --lv-cis-soft: rgba(167, 139, 250, 0.12);
+  --lv-science: #5eead4;
+  --lv-science-soft: rgba(94, 234, 212, 0.12);
+
+  --ink-bg: #ffffff;
+  --ink-fg: #000000;
+
+  --shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --glow: none;
+  --copied: rgba(52, 211, 153, 0.22);
+
+  /* Геометрия */
+  --rail: 200px;
+  --aside: 260px;
+  --dock-h: 0px;
+  --bar-top: 52px;
+  --gutter: 36px;
+  --row: 32px;
+  --inset-b: calc(var(--dock-h) + env(safe-area-inset-bottom, 0px) + 16px);
+
+  /* Движение */
+  --t-fast: 90ms;
+  --t-base: 140ms;
+  --t-move: 220ms;
+  --t-big: 320ms;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --bg: #ffffff;
+    --surface: #fafafa;
+    --surface-2: rgba(243, 244, 246, 0.9);
+    --surface-3: rgba(229, 231, 235, 0.9);
+    --line: rgba(17, 24, 39, 0.12);
+    --line-strong: #d1d5db;
+    --rule: rgba(17, 24, 39, 0.04);
+    --fg: #09090b;
+    --fg-soft: rgba(9, 9, 11, 0.72);
+    --muted: #52525b; /* 7.60 на белом */
+    --faint: #71717a; /* 4.80 — проходит AA */
+    --accent: #09090b;
+    --accent-2: rgba(9, 9, 11, 0.6);
+    --accent-fg: #ffffff;
+    --accent-soft: rgba(9, 9, 11, 0.06);
+    --ok: #047857;
+    --ok-soft: rgba(4, 120, 87, 0.1);
+    --warn: #b45309;
+    --warn-soft: rgba(180, 83, 9, 0.1);
+    --bad: #be123c;
+    --bad-soft: rgba(190, 18, 60, 0.1);
+    --lv-world: #6b7280;
+    --lv-world-soft: rgba(107, 114, 128, 0.1);
+    --lv-kz: #09090b;
+    --lv-kz-soft: rgba(9, 9, 11, 0.08);
+    --lv-cis: #6d28d9;
+    --lv-cis-soft: rgba(109, 40, 217, 0.1);
+    --lv-science: #0f766e;
+    --lv-science-soft: rgba(15, 118, 110, 0.1);
+    --ink-bg: #09090b;
+    --ink-fg: #ffffff;
+    --shadow: 0 16px 40px rgba(9, 9, 11, 0.1);
+    --shadow-sm: 0 1px 2px rgba(9, 9, 11, 0.06);
+    --glow: none;
+    --copied: rgba(4, 120, 87, 0.12);
+  }
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --surface: #fafafa;
+  --surface-2: rgba(243, 244, 246, 0.9);
+  --surface-3: rgba(229, 231, 235, 0.9);
+  --line: rgba(17, 24, 39, 0.12);
+  --line-strong: #d1d5db;
+  --rule: rgba(17, 24, 39, 0.04);
+  --fg: #09090b;
+  --fg-soft: rgba(9, 9, 11, 0.72);
+  --muted: #52525b; /* 7.60 на белом */
+  --faint: #71717a; /* 4.80 — проходит AA */
+  --accent: #09090b;
+  --accent-2: rgba(9, 9, 11, 0.6);
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(9, 9, 11, 0.06);
+  --ok: #047857;
+  --ok-soft: rgba(4, 120, 87, 0.1);
+  --warn: #b45309;
+  --warn-soft: rgba(180, 83, 9, 0.1);
+  --bad: #be123c;
+  --bad-soft: rgba(190, 18, 60, 0.1);
+  --lv-world: #6b7280;
+  --lv-world-soft: rgba(107, 114, 128, 0.1);
+  --lv-kz: #09090b;
+  --lv-kz-soft: rgba(9, 9, 11, 0.08);
+  --lv-cis: #6d28d9;
+  --lv-cis-soft: rgba(109, 40, 217, 0.1);
+  --lv-science: #0f766e;
+  --lv-science-soft: rgba(15, 118, 110, 0.1);
+  --ink-bg: #09090b;
+  --ink-fg: #ffffff;
+  --shadow: 0 16px 40px rgba(9, 9, 11, 0.1);
+  --shadow-sm: 0 1px 2px rgba(9, 9, 11, 0.06);
+  --glow: none;
+  --copied: rgba(4, 120, 87, 0.12);
+}
+
+@media (pointer: coarse) {
+  :root {
+    --row: 44px;
+  }
+}
+
+@media (max-width: 1023px) {
+  :root {
+    --dock-h: 50px;
+  }
+}
+
+@theme inline {
+  /* Шаг сетки отступов: все p-*, gap-*, m-* Tailwind считаются от него.
+     0.25rem по умолчанию, 0.2rem даёт минус 20% по всему интерфейсу сразу. */
+  --spacing: 0.2rem;
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-rule: var(--rule);
+  --color-fg: var(--fg);
+  --color-fg-soft: var(--fg-soft);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-2: var(--accent-2);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-bad: var(--bad);
+  --color-bad-soft: var(--bad-soft);
+  --color-lv-world: var(--lv-world);
+  --color-lv-world-soft: var(--lv-world-soft);
+  --color-lv-kz: var(--lv-kz);
+  --color-lv-kz-soft: var(--lv-kz-soft);
+  --color-lv-cis: var(--lv-cis);
+  --color-lv-cis-soft: var(--lv-cis-soft);
+  --color-lv-science: var(--lv-science);
+  --color-lv-science-soft: var(--lv-science-soft);
+  --color-ink-bg: var(--ink-bg);
+  --color-ink-fg: var(--ink-fg);
+  --color-copied: var(--copied);
+  --font-display: "Poppins", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Poppins", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --shadow-panel: var(--shadow);
+  --shadow-panel-sm: var(--shadow-sm);
+  --shadow-glow: var(--glow);
+}
+
+/* ---------- База ---------- */
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: var(--accent-soft);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  button,
+  [role="button"],
+  a {
+    cursor: pointer;
+  }
+
+  p,
+  li {
+    text-wrap: pretty;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  /* Ссылка читается как ссылка: источник всегда подчёркнут. */
+  .link {
+    color: var(--accent);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+    text-decoration-color: color-mix(in oklab, var(--accent) 45%, transparent);
+    overflow-wrap: anywhere;
+    transition: text-decoration-color var(--t-base);
+  }
+
+  .link:hover,
+  .link:focus-visible {
+    text-decoration-color: currentColor;
+  }
+}
+
+@layer components {
+  /* ---------- Типографская шкала ---------- */
+
+  /* Заголовок темы дня гаснет книзу — главный приём референса. */
+  .t-d1 {
+    font-family: var(--font-display);
+    font-size: clamp(25px, 3.4vw, 38px);
+    line-height: 1.14;
+    letter-spacing: -0.045em;
+    font-weight: 500;
+    text-wrap: balance;
+    background-image: linear-gradient(to bottom, var(--fg) 0%, var(--fg) 52%, color-mix(in srgb, var(--fg) 55%, transparent) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .t-d2 {
+    font-size: 17px;
+    line-height: 1.26;
+    letter-spacing: -0.02em;
+    font-weight: 800;
+  }
+
+  .t-d3 {
+    font-size: 15px;
+    line-height: 1.35;
+    letter-spacing: -0.01em;
+    font-weight: 700;
+  }
+
+  .t-hook {
+    font-size: 17px;
+    line-height: 1.3;
+    letter-spacing: -0.015em;
+    font-weight: 700;
+  }
+
+  @media (min-width: 640px) {
+    .t-d2 {
+      font-size: 20px;
+      line-height: 1.24;
+    }
+
+    .t-hook {
+      font-size: 20px;
+    }
+  }
+
+  .t-lead {
+    font-size: 14.5px;
+    line-height: 1.55;
+    color: var(--fg-soft);
+    max-width: 62ch;
+  }
+
+  /* Единственный размер, который не сжимается ниже 16px: это то, что копируют. */
+  .t-content {
+    font-size: 14.5px;
+    line-height: 1.6;
+    font-weight: 500;
+  }
+
+  .t-body-sm {
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .t-caption {
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--muted);
+  }
+
+  .t-kicker,
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .t-meta {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.4;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .t-stat {
+    font-family: var(--font-mono);
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .t-log {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 400;
+    line-height: 1.6;
+  }
+
+  .t-micro {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    line-height: 1.2;
+    color: var(--faint);
+    overflow-wrap: anywhere;
+  }
+
+  .display {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---------- Поверхности и линейки ---------- */
+
+  /* Полоса разделяется линейкой, а не карточкой с тенью. */
+  .panel {
+    background: none;
+    border: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 0;
+    box-shadow: none;
+    padding-block: 16px;
+  }
+
+  .panel-2 {
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    backdrop-filter: blur(8px);
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+  }
+
+  /* Кнопка-градиент из референса: белая сверху, гаснет книзу. */
+  .btn-gradient {
+    background-image: linear-gradient(to bottom, var(--accent) 0%, color-mix(in srgb, var(--accent) 95%, transparent) 45%, color-mix(in srgb, var(--accent) 60%, transparent) 100%);
+    color: var(--accent-fg);
+    border: 0;
+  }
+
+  .rule {
+    border-top: 1px solid var(--line);
+  }
+
+  .rule-2 {
+    border-top: 2px solid var(--line-strong);
+  }
+
+  .mark {
+    border-left: 2px solid currentColor;
+    padding-left: 12px;
+  }
+
+  .ink-block {
+    background: var(--ink-bg);
+    color: var(--ink-fg);
+  }
+
+  /* Печатная линейка под шапкой выпуска. */
+  .rule-bg,
+  .grid-bg {
+    background-image: repeating-linear-gradient(to bottom, var(--rule) 0 1px, transparent 1px 28px);
+    mask-image: linear-gradient(to bottom, black, transparent 70%);
+    -webkit-mask-image: linear-gradient(to bottom, black, transparent 70%);
+  }
+
+  .row-hover {
+    transition: background-color var(--t-fast);
+  }
+
+  .row-hover:hover {
+    background: var(--surface-2);
+  }
+
+  /* Акцент — плоская заливка: градиент не проходил по контрасту в светлой теме. */
+  .accent-gradient {
+    background: var(--accent);
+    background-image: none;
+  }
+
+  .text-gradient {
+    color: var(--accent);
+  }
+
+  .scroll-x {
+    overflow-x: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
+  }
+
+  .thin-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
+  }
+}
+
+/* ---------- Конвейер: единственное непрерывное движение ---------- */
+
+@keyframes rule-run {
+  from {
+    background-position: -40% 0;
+  }
+
+  to {
+    background-position: 140% 0;
+  }
+}
+
+.rule-running {
+  background-image: linear-gradient(90deg, transparent, var(--accent), transparent);
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  animation: rule-run 1.2s linear infinite;
+}
+
+/* Бегущая линейка не «замирает в невидимость»: при reduce она становится статичной. */
+@media (prefers-reduced-motion: reduce) {
+  .rule-running {
+    animation: none;
+    background-image: linear-gradient(90deg, var(--accent), var(--accent));
+    background-size: 40% 100%;
+    background-position: 0 0;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
