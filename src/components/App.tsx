@@ -3,7 +3,7 @@
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "framer-motion";
 import { Newspaper } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DailyFeed, Edition, FeedEvent, PipelineEvent, ResearchResult, Settings } from "@/lib/schema";
+import type { DailyFeed, Edition, FeedEvent, FeedKind, PipelineEvent, ResearchResult, Settings } from "@/lib/schema";
 import { FEED_STEPS, STEPS } from "@/lib/steps";
 import { formatTimeRu, todayIso } from "@/lib/utils";
 import { BriefView } from "./BriefView";
@@ -220,7 +220,7 @@ function Shell({ initialEditions, initialSettings, initialTags, initialResearch,
    * Темы приходят событием "topic" по мере готовности — лента наполняется
    * на глазах, а не появляется целиком в конце.
    */
-  const generateFeed = useCallback(async () => {
+  const generateFeed = useCallback(async (kinds?: FeedKind[]) => {
     setPanelKind("feed");
     setPanelOpen(true);
     if (preview) return;
@@ -232,9 +232,15 @@ function Shell({ initialEditions, initialSettings, initialTags, initialResearch,
       const res = await fetch("/api/feed", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: today }),
+        // kinds задаётся при доборе одного пустого типа: тогда сервер ищет
+        // только по нему, а готовые темы дня берёт из сохранённой ленты.
+        body: JSON.stringify(kinds?.length ? { date: today, kinds } : { date: today }),
         signal: controller.signal,
       });
+      if (res.status === 409) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Лента на эту дату уже собирается.");
+      }
       if (!res.ok || !res.body) throw new Error(`Сервер ответил ${res.status}`);
       const reader = res.body.getReader();
       const decoder = new TextDecoder();

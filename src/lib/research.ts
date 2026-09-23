@@ -15,6 +15,7 @@ import { openPages, tavilySearchMany, type SearchHit } from "./search";
 import { ageInDays, freshnessOf, scoreCredibility, type CredibilitySignals } from "./credibility";
 import { askFast, askRef, describeModelError, lanesFor, refLabel, siftRotation } from "./model";
 import { hostOf } from "./utils";
+import { addUsage } from "./store";
 import { conceptInText, evidenceInText } from "./text-match";
 
 /**
@@ -684,10 +685,14 @@ ${brief}`,
       }
     }
 
+    // Кошелёк Tavily общий с лентой и выпуском — считаем в одном месте.
+    const monthly = await addUsage({ tavilyCredits: credits });
     yield {
       type: "log",
       kind: "info",
-      text: `Готово за ${Math.round((Date.now() - started) / 1000)} с · кредитов Tavily: ${credits}.`,
+      text:
+        `Готово за ${Math.round((Date.now() - started) / 1000)} с · кредитов Tavily: ${credits}. ` +
+        `За месяц: ${monthly.tavilyCredits} кредитов, ${monthly.runs} прогонов.`,
     };
 
     const result: ResearchResult = {

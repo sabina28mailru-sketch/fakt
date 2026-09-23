@@ -361,6 +361,11 @@ export const FeedTopicSchema = z.object({
   whyNow: z.string().min(1),
   /** На какой вопрос аудитории тема отвечает. Для типа opinion — предмет спора. */
   audienceQuestion: z.string().default(""),
+  /**
+   * Факты с проверенными ссылками. Пустой массив возможен: не в каждом
+   * материале есть цифры. Но пустоту нельзя показывать молча — интерфейс
+   * обязан сказать, что проверяемых цифр в теме нет.
+   */
   facts: z.array(FactSchema),
   /**
    * Источники темы. Только реально открытые страницы: адрес, который мы
@@ -379,6 +384,18 @@ export const FeedTopicSchema = z.object({
   evidence: z.string().default(""),
   credibility: CredibilitySchema,
   freshness: FreshnessSchema,
+  /**
+   * Что в готовом контенте код подтвердить НЕ смог: цифры, которых нет на
+   * скачанных страницах, и рассказы от первого лица о том, чего система
+   * знать не может. Пустой список — всё сошлось.
+   *
+   * Поле появилось после настоящего провала: в кадр сторис попало «рост в
+   * 3,7-кратном темпе» (числа нет нигде) и «я вернулся с конференции в
+   * Алматы» (владелец там не был), и рядом стояла настоящая ссылка.
+   * Молчать о таком нельзя: подтверждённая с виду выдумка хуже, чем
+   * честно непроверенное.
+   */
+  unverified: z.array(z.string()).default([]),
   stories: FeedStoriesSchema,
   carousel: FeedCarouselSchema,
   reel: FeedReelSchema,
@@ -398,6 +415,19 @@ export const FeedTopicDraftSchema = z.object({
 });
 export type FeedTopicDraft = z.infer<typeof FeedTopicDraftSchema>;
 
+/**
+ * Почему тип темы остался пустым. Причину пишет КОД по своим счётчикам,
+ * а не модель: «не нашлось основания» и «кончилась квота» — это разные
+ * беды с разными действиями, и человек обязан их различать.
+ */
+export const FeedGapSchema = z.object({
+  kind: FeedKindSchema,
+  reason: z.string().min(1),
+  /** true — виновата квота или сеть, есть смысл повторить прямо сейчас. */
+  retryable: z.boolean().default(false),
+});
+export type FeedGap = z.infer<typeof FeedGapSchema>;
+
 export const DailyFeedSchema = z.object({
   id: z.string().min(1),
   date: z.string().min(1),
@@ -407,6 +437,14 @@ export const DailyFeedSchema = z.object({
   topics: z.array(FeedTopicSchema),
   /** Чего не хватило: заполняется, когда тем меньше трёх. Молча недодавать нельзя. */
   shortfall: z.string().default(""),
+  /** Пустые типы с причиной. По ним рисуются карточки «добрать тему». */
+  gaps: z.array(FeedGapSchema).default([]),
+  /**
+   * Понятия ниши, по которым код проверял каждую страницу. Хранятся, чтобы
+   * отказ можно было объяснить: «на странице нет ни одного понятия вашей
+   * ниши» — проверяемое утверждение, а не мнение модели.
+   */
+  niche: z.array(ConceptSchema).default([]),
   queries: z.array(z.string()).default([]),
   meta: z.object({
     model: z.string(),
@@ -427,3 +465,20 @@ export type FeedEvent =
   | { type: "topic"; topic: FeedTopic }
   | { type: "done"; feed: DailyFeed }
   | { type: "error"; message: string };
+
+/* ---------- Расход внешних сервисов ---------- */
+
+/**
+ * Сколько потрачено за календарный месяц. Кошелёк у трёх конвейеров общий:
+ * лента, выпуск и исследование берут кредиты Tavily из одного тарифа, а
+ * увидеть остаток было негде — первым сигналом становился отказ поиска.
+ * Счётчик обнуляется сменой месяца: тарифы у Tavily тоже месячные.
+ */
+export const UsageSchema = z.object({
+  /** ГГГГ-ММ. Не совпал с текущим — счётчики начинаются заново. */
+  month: z.string().default(""),
+  tavilyCredits: z.number().int().min(0).default(0),
+  modelCalls: z.number().int().min(0).default(0),
+  runs: z.number().int().min(0).default(0),
+});
+export type Usage = z.infer<typeof UsageSchema>;

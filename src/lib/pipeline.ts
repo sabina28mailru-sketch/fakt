@@ -16,7 +16,7 @@ import {
 import { askModel, describeModelError, type ModelAnswer, type ModelParams } from "./model";
 import { openPages, tavilySearch, type SearchHit } from "./search";
 import { BUCKETS, type SourceBucket } from "./sources";
-import { nextEditionId, saveEdition } from "./store";
+import { addUsage, nextEditionId, saveEdition } from "./store";
 import { formatDateRu, hostOf, rubricIndex, weekdayRu } from "./utils";
 
 type CreateParams = ModelParams;
@@ -390,7 +390,13 @@ export async function* runPipeline(opts: PipelineOptions): AsyncGenerator<Pipeli
         yield { type: "step", step: "save", status: "running" };
         await saveEdition(edition);
         yield { type: "step", step: "save", status: "done", detail: `${id}.json` };
-        yield { type: "log", kind: "info", text: `Потрачено кредитов Tavily: ${credits}.` };
+        // Кошелёк Tavily общий с лентой и исследованием: считаем вместе.
+        const monthly = await addUsage({ tavilyCredits: credits });
+        yield {
+          type: "log",
+          kind: "info",
+          text: `Потрачено кредитов Tavily: ${credits}. За месяц: ${monthly.tavilyCredits}, прогонов ${monthly.runs}.`,
+        };
         yield { type: "done", edition };
         return;
       }

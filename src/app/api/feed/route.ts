@@ -1,4 +1,5 @@
 import { runFeed } from "@/lib/feed";
+import { FEED_KINDS } from "@/lib/schema";
 import { readFeed, readSettings } from "@/lib/store";
 import { todayIso } from "@/lib/utils";
 
@@ -29,12 +30,17 @@ export async function GET(req: Request) {
  * поэтому повторный запуск в тот же день перезаписывает сегодняшнюю.
  */
 export async function POST(req: Request) {
-  const body = (await req.json().catch(() => ({}))) as { date?: string };
+  const body = (await req.json().catch(() => ({}))) as { date?: string; kinds?: unknown };
   const settings = await readSettings();
   const date =
     typeof body.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.date)
       ? body.date
       : todayIso(settings.userLocation.timezone);
+
+  // Добор одного типа: {"kinds":["opinion"]}. Пусто — собираем все три.
+  const kinds = Array.isArray(body.kinds)
+    ? FEED_KINDS.filter((k) => (body.kinds as unknown[]).includes(k))
+    : undefined;
 
   if (inFlight.has(date)) {
     return Response.json(
@@ -57,7 +63,7 @@ export async function POST(req: Request) {
         if (!closed) controller.enqueue(encoder.encode(": ping\n\n"));
       }, 15000);
       try {
-        for await (const event of runFeed({ settings, date })) {
+        for await (const event of runFeed({ settings, date, kinds })) {
           if (req.signal.aborted) break;
           send(event);
         }

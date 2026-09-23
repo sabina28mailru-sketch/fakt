@@ -1,6 +1,6 @@
 import { ApiError, GoogleGenAI } from "@google/genai";
 import { NextResponse } from "next/server";
-import { readSettings } from "@/lib/store";
+import { readSettings, readUsage } from "@/lib/store";
 
 export const runtime = "nodejs";
 
@@ -55,10 +55,18 @@ export async function GET() {
     }
     const data = (await res.json()) as { results?: unknown[]; usage?: { credits?: number } };
     const found = data.results?.length ?? 0;
+    // Расход за месяц общий на три конвейера. Показываем здесь, потому что
+    // «проверить подключение» — единственное место, куда человек заходит
+    // именно чтобы убедиться, что всё в порядке.
+    const usage = await readUsage();
     return NextResponse.json({
       ok: true,
       model,
-      message: `Ключи приняты. Модель ${model} отвечает, поиск по казахстанским источникам вернул ${found} результатов (${data.usage?.credits ?? 0} кредит).`,
+      usage,
+      message:
+        `Ключи приняты. Модель ${model} отвечает, поиск по казахстанским источникам вернул ${found} результатов ` +
+        `(${data.usage?.credits ?? 0} кредит). За ${usage.month} потрачено кредитов Tavily: ${usage.tavilyCredits}, ` +
+        `прогонов: ${usage.runs}, вызовов моделей: ${usage.modelCalls}.`,
     });
   } catch (e) {
     return NextResponse.json({ ok: false, message: `Поиск: ${describe(e)}` });

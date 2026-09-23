@@ -5,11 +5,13 @@ import {
   EditionSchema,
   ResearchStoreSchema,
   SettingsSchema,
+  UsageSchema,
   type DailyFeed,
   type Edition,
   type ResearchResult,
   type ResearchStore,
   type Settings,
+  type Usage,
 } from "./schema";
 import { DEFAULT_SETTINGS } from "./brief";
 
@@ -190,4 +192,49 @@ export async function readFeedMemory(): Promise<{ titles: string[]; urls: Set<st
     for (const fact of edition.facts) urls.add(fact.url);
   }
   return { titles, urls };
+}
+
+/* ---------- Расход внешних сервисов ---------- */
+
+const USAGE_FILE = path.join(DATA_DIR, "usage.json");
+
+/** Текущий месяц как ГГГГ-ММ. Считаем по UTC: месяц — не то, где нужна точность до часового пояса. */
+function currentMonth(now = new Date()): string {
+  return now.toISOString().slice(0, 7);
+}
+
+/**
+ * Расход за текущий месяц. Если в файле лежит прошлый месяц — отдаём нули:
+ * тариф Tavily месячный, и смешивать месяцы значило бы врать об остатке.
+ */
+export async function readUsage(now = new Date()): Promise<Usage> {
+  const month = currentMonth(now);
+  try {
+    const raw = await fs.readFile(USAGE_FILE, "utf8");
+    const parsed = UsageSchema.safeParse(JSON.parse(raw));
+    if (parsed.success && parsed.data.month === month) return parsed.data;
+  } catch {
+    /* файла нет — начинаем с нуля */
+  }
+  return { month, tavilyCredits: 0, modelCalls: 0, runs: 0 };
+}
+
+/**
+ * Прибавить расход одного прогона. Вызывается всеми тремя конвейерами:
+ * кошелёк у них общий, и считать его порознь бессмысленно.
+ */
+export async function addUsage(
+  spent: { tavilyCredits?: number; modelCalls?: number },
+  now = new Date(),
+): Promise<Usage> {
+  const current = await readUsage(now);
+  const next: Usage = {
+    month: current.month,
+    tavilyCredits: current.tavilyCredits + Math.max(0, Math.round(spent.tavilyCredits ?? 0)),
+    modelCalls: current.modelCalls + Math.max(0, Math.round(spent.modelCalls ?? 0)),
+    runs: current.runs + 1,
+  };
+  await ensureDirs();
+  await fs.writeFile(USAGE_FILE, JSON.stringify(next, null, 2), "utf8");
+  return next;
 }

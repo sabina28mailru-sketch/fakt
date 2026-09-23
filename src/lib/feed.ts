@@ -2,7 +2,9 @@ import { GoogleGenAI } from "@google/genai";
 import {
   FEED_KINDS,
   FeedTopicDraftSchema,
+  type Concept,
   type DailyFeed,
+  type FeedGap,
   type Fact,
   type FeedEvent,
   type FeedKind,
@@ -23,8 +25,10 @@ import {
 } from "./model";
 import { openPages, tavilySearchMany, type SearchHit } from "./search";
 import { ageInDays, freshnessOf, scoreCredibility, type CredibilitySignals } from "./credibility";
-import { evidenceInText, titleOverlap } from "./text-match";
-import { readFeedMemory, saveFeed } from "./store";
+import { conceptInText, evidenceInText, titleOverlap, words } from "./text-match";
+import { isFeedPage, normalizeDate, pageDate, sameUrl } from "./page-guards";
+import { checkNumbers, firstPersonClaims } from "./numbers";
+import { addUsage, readFeed, readFeedMemory, saveFeed } from "./store";
 import { FEED_KIND_LABEL, hostOf, weekdayRu } from "./utils";
 
 /**
@@ -72,6 +76,29 @@ const SUPPORT_PER_TOPIC = 2;
  * ленту» и «Как Instagram изменил ленту» не пройдут оба.
  */
 const REPEAT_OVERLAP = 0.6;
+/**
+ * Сколько понятий ниши должно найтись в тексте страницы, чтобы она вообще
+ * считалась материалом для этой ленты.
+ *
+ * Раньше соответствие нише решала ТОЛЬКО модель полем fit: yes — и это было
+ * единственное место в ленте, где не было кодовой проверки. В разделе
+ * «Выпуск» поиск ограничен списками изданий из брифа, а лента ищет по всему
+ * вебу, так что положиться было не на что вовсе.
+ *
+ * Два, а не одно: одно понятие ловит любую страницу, где мимоходом сказано
+ * «личный бренд». Два требуют, чтобы материал был про пересечение — про то,
+ * чем аудитория занимается И где она это делает.
+ */
+const NICHE_MIN = 2;
+/**
+ * Насколько заголовок подтверждающего материала должен совпадать с темой.
+ * Ниже порога это не подтверждение, а соседний материал того же типа:
+ * на живом прогоне статья про модели доступа к информации «подтверждалась»
+ * постом про B2B-атрибуцию, и две его строки дошли до слайдов карусели.
+ * Порог мягче, чем у защиты от повторов: там ищут совпадение, здесь —
+ * родство.
+ */
+const SUPPORT_OVERLAP = 0.3;
 
 /**
  * Витрины без содержательного текста: открывать их незачем, судить не по чему.
@@ -119,106 +146,10 @@ function parseStrings(raw: unknown, limit: number): string[] {
   return raw.filter((x): x is string => typeof x === "string" && x.trim().length > 0).slice(0, limit);
 }
 
-function normalizeDate(date: string): string {
-  if (!date) return "";
-  if (/^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
-  const t = Date.parse(date);
-  if (Number.isNaN(t)) return "";
-  return new Date(t).toISOString().slice(0, 10);
-}
 
 function isSelfPublished(url: string): boolean {
   const host = hostOf(url);
   return [...HARD_NOISE, ...SELF_PUBLISHED].some((d) => host === d || host.endsWith(`.${d}`));
-}
-
-/**
- * Дата публикации, которой можно верить. Приоритет у даты из выдачи Tavily:
- * её вернул поиск, а не модель. Дату, названную моделью, принимаем только
- * если она совпала с выдачей или реально встречается в тексте страницы.
- * Иначе дата остаётся пустой: от неё зависят свежесть и +10 к баллу, и у
- * модели, которой велено искать свежее, есть прямой стимул её подрисовать.
- */
-function pageDate(raw: unknown, fromSearch: string | undefined, pageText: string): string {
-  const search = normalizeDate(fromSearch ?? "");
-  if (search) return search;
-  const told = normalizeDate(typeof raw === "string" ? raw : "");
-  if (!told) return "";
-  // Дата на странице может стоять как 2026-09-18, 18.09.2026 или 18 сентября.
-  const [y, m, d] = told.split("-");
-  const haystack = pageText.toLowerCase();
-  const forms = [told, `${d}.${m}.${y}`, `${Number(d)}.${Number(m)}.${y}`, `${Number(d)} ${MONTHS_RU[Number(m) - 1]}`];
-  return forms.some((f) => haystack.includes(f.toLowerCase())) ? told : "";
-}
-
-const MONTHS_RU = [
-  "января",
-  "февраля",
-  "марта",
-  "апреля",
-  "мая",
-  "июня",
-  "июля",
-  "августа",
-  "сентября",
-  "октября",
-  "ноября",
-  "декабря",
-];
-
-/**
- * Страница-витрина: лента тегов, рубрика, список публикаций. Текста на ней
- * много, цитата с неё находится, и отбор честно говорит «подходит» — но
- * темой она быть не может, у неё нет содержания. Поймал живой прогон:
- * в ленту встала страница «#personalbranding #aiinmarketing … - LinkedIn».
- */
-function isFeedPage(title: string, url: string): boolean {
-  // Два и более хештега в заголовке — это подпись к ленте, а не заголовок статьи.
-  const hashtags = (title.match(/#[a-zA-Z0-9_\u0430-\u044f\u0451]+/g) ?? []).length;
-  if (hashtags >= 2) return true;
-  // Сверяем СЕГМЕНТЫ пути, а не подстроку: «tag» встречается внутри «montage»,
-  // и проверка по вхождению выбрасывала бы нормальные статьи.
-  let segments: string[] = [];
-  try {
-    segments = new URL(url).pathname.toLowerCase().split("/").filter(Boolean);
-  } catch {
-    segments = [];
-  }
-  if (segments.some((seg) => LISTING_SEGMENTS.has(seg))) return true;
-  return /^(публикации|все материалы|posts|articles)\b/i.test(title.trim());
-}
-
-/** Куски адреса, за которыми стоит перечень материалов, а не материал. */
-const LISTING_SEGMENTS = new Set([
-  "tag",
-  "tags",
-  "topic",
-  "topics",
-  "category",
-  "categories",
-  "search",
-  "hashtag",
-  "feed",
-  "rubric",
-  "label",
-  "author",
-]);
-
-/**
- * Сравнение адресов без косметики: модель то добавит слеш в конце, то
- * потеряет utm-хвост. Буквальное сравнение выбрасывало настоящие факты —
- * на замере из четырёх фактов доезжал один.
- */
-function sameUrl(a: string, b: string): boolean {
-  const clean = (u: string) => {
-    try {
-      const x = new URL(u.trim());
-      return `${x.hostname.replace(/^www\./, "")}${x.pathname.replace(/\/+$/, "")}`.toLowerCase();
-    } catch {
-      return u.trim().toLowerCase().replace(/\/+$/, "");
-    }
-  };
-  return clean(a) === clean(b);
 }
 
 /** Насколько свежая находка — только для порядка открытия страниц. */
@@ -249,6 +180,12 @@ interface Material {
   signals: CredibilitySignals;
   /** Возраст в днях или null. Нужен для пересчёта балла. */
   days: number | null;
+  /**
+   * Полный текст скачанной страницы. Держим при материале, потому что
+   * сверять цифры готового контента больше не с чем: факты и цитата —
+   * это пересказ модели, а единственная твёрдая опора — сама страница.
+   */
+  text: string;
   credibility: ReturnType<typeof scoreCredibility>;
   freshness: ReturnType<typeof freshnessOf>;
   score: number;
@@ -261,6 +198,15 @@ function parseKind(raw: unknown): FeedKind | null {
 export interface FeedOptions {
   settings: Settings;
   date: string;
+  /**
+   * Какие типы тем собирать. Пусто — все три. Заданы — только они, а темы
+   * остальных типов берутся из уже сохранённой ленты этого дня.
+   *
+   * Это «добрать тему»: когда один тип остался пустым, пересобирать всю
+   * ленту значило бы выбросить две готовые темы и потратить втрое больше
+   * квоты ради одной недостающей.
+   */
+  kinds?: FeedKind[];
   apiKey?: string;
   searchApiKey?: string;
   now?: Date;
@@ -281,6 +227,11 @@ export async function* runFeed(opts: FeedOptions): AsyncGenerator<FeedEvent> {
     return;
   }
   const key = searchKey;
+
+  const wanted = opts.kinds?.length ? FEED_KINDS.filter((k) => opts.kinds!.includes(k)) : FEED_KINDS;
+  const topUp = wanted.length < FEED_KINDS.length;
+  // Уже собранная лента этого дня: при доборе её темы других типов остаются.
+  const existing = topUp ? await readFeed(date) : null;
 
   const client = new GoogleGenAI({ apiKey });
   const model = settings.model;
@@ -327,7 +278,8 @@ export async function* runFeed(opts: FeedOptions): AsyncGenerator<FeedEvent> {
     });
     modelCalls++;
 
-    const rawAgenda = extractJson(agenda.text) as { queries?: unknown };
+    const rawAgenda = extractJson(agenda.text) as { queries?: unknown; niche?: unknown };
+    const niche = parseNiche(rawAgenda.niche, settings);
     const planned: { q: string; kind: FeedKind }[] = [];
     if (Array.isArray(rawAgenda.queries)) {
       for (const item of rawAgenda.queries) {
@@ -341,21 +293,31 @@ export async function* runFeed(opts: FeedOptions): AsyncGenerator<FeedEvent> {
     if (!planned.length) {
       throw new Error(`Модель не предложила ни одного поискового запроса. Начало ответа: ${agenda.text.slice(0, 200)}`);
     }
+    // При доборе ищем только по нужным типам: остальные запросы стоили бы
+    // кредитов Tavily впустую. Если модель не дала ни одного запроса нужного
+    // типа, оставляем что есть — лучше искать шире, чем не искать вовсе.
+    const forKinds = planned.filter((p) => wanted.includes(p.kind));
+    const queries = forKinds.length ? forKinds : planned;
+    yield {
+      type: "log",
+      kind: "info",
+      text: `Понятия ниши, по которым буду проверять страницы: ${niche.map((c) => c.name).join(" · ")}`,
+    };
     yield {
       type: "step",
       step: "agenda",
       status: "done",
-      detail: `${planned.length} запросов · ${lap()}`,
+      detail: `${queries.length} запросов · ${lap()}`,
     };
 
     /* ---------- 2. Поиск ---------- */
-    yield { type: "step", step: "search", status: "running", detail: `${planned.length} запросов разом` };
+    yield { type: "step", step: "search", status: "running", detail: `${queries.length} запросов разом` };
     const hits = new Map<string, SearchHit>();
     const used: string[] = [];
 
     const outcomes = await tavilySearchMany(
       key,
-      planned.map((p) => p.q),
+      queries.map((p) => p.q),
       [],
       { timeRange: "month", maxResults: 8, excludeDomains: HARD_NOISE },
     );
@@ -373,7 +335,7 @@ export async function* runFeed(opts: FeedOptions): AsyncGenerator<FeedEvent> {
         hits.set(hit.url, hit);
         fresh++;
       }
-      const label = FEED_KIND_LABEL[planned[i].kind];
+      const label = FEED_KIND_LABEL[queries[i].kind];
       yield {
         type: "log",
         kind: fresh ? "result" : "warn",
@@ -512,6 +474,7 @@ export async function* runFeed(opts: FeedOptions): AsyncGenerator<FeedEvent> {
     const materials: Material[] = [];
     let droppedQuote = 0;
     let droppedFit = 0;
+    const droppedNiche: { title: string; found: string[] }[] = [];
     for (const raw of rawItems) {
       if (typeof raw !== "object" || raw === null) continue;
       const o = raw as Record<string, unknown>;
@@ -538,6 +501,15 @@ export async function* runFeed(opts: FeedOptions): AsyncGenerator<FeedEvent> {
         droppedFit++;
         continue;
       }
+
+      // Соответствие нише устанавливает КОД по тексту страницы, а не модель
+      // своим fit: yes. Без этого лента, которая ищет по всему вебу, целиком
+      // держалась на доверии к одному полю.
+      const nicheHits = niche.filter((c) => conceptInText(c, pageText));
+      if (nicheHits.length < NICHE_MIN) {
+        droppedNiche.push({ title: pageTitle || hostOf(url), found: nicheHits.map((c) => c.name) });
+        continue;
+      }
       // Единственный источник материала — страница, которую мы сами скачали.
       const selfSource: ResearchSource = {
         title: (typeof o.title === "string" && o.title) || hit?.title || hostOf(url),
@@ -551,6 +523,9 @@ export async function* runFeed(opts: FeedOptions): AsyncGenerator<FeedEvent> {
 
       const rawSignals = (o.signals ?? {}) as Partial<CredibilitySignals>;
       const signals: CredibilitySignals = {
+        // Названный автор: для мнения это главная опора балла, поэтому
+        // признак берётся у модели и здесь же ограничивается — у страницы
+        // без автора его быть не может.
         // Первоисточник засчитывается по НАЗВАННОМУ на странице документу,
         // а не по ссылке: ссылку мы всё равно не открывали.
         hasPrimarySource: Boolean(rawSignals.hasPrimarySource) && mentions.length > 0,
@@ -567,7 +542,8 @@ export async function* runFeed(opts: FeedOptions): AsyncGenerator<FeedEvent> {
       };
       const normalizedDate = selfSource.date;
       const days = ageInDays(normalizedDate, now);
-      const credibility = scoreCredibility(signals, days);
+      // Для колонки-мнения балл считается по другим правилам: см. ScoreOptions.
+      const credibility = scoreCredibility(signals, days, { opinion: kind === "opinion" });
       const freshness = freshnessOf(days);
 
       materials.push({
@@ -586,6 +562,7 @@ export async function* runFeed(opts: FeedOptions): AsyncGenerator<FeedEvent> {
         source: selfSource,
         signals,
         days,
+        text: pageText,
         credibility,
         freshness,
         // Свежесть добавляется к достоверности: вчерашний материал при равном
@@ -604,6 +581,26 @@ export async function* runFeed(opts: FeedOptions): AsyncGenerator<FeedEvent> {
     if (droppedFit) {
       yield { type: "log", kind: "info", text: `Не подошли по содержанию: ${droppedFit}.` };
     }
+    if (droppedNiche.length) {
+      yield {
+        type: "log",
+        kind: "info",
+        text:
+          `Мимо ниши: ${droppedNiche.length}. Нужно минимум ${NICHE_MIN} понятия из «${niche.map((c) => c.name).join(", ")}», ` +
+          `а нашлось меньше. Например: ${droppedNiche
+            .slice(0, 2)
+            .map((d) => `«${d.title.slice(0, 50)}» (${d.found.length ? d.found.join(", ") : "ни одного"})`)
+            .join("; ")}.`,
+      };
+    }
+
+    // Сколько материалов каждого типа пережило проверки. Нужно, чтобы
+    // отличить «не нашлось вовсе» от «нашлось, но это повтор».
+    const materialsByKind = new Map<FeedKind, number>();
+    for (const m of materials) materialsByKind.set(m.kind, (materialsByKind.get(m.kind) ?? 0) + 1);
+    // Ошибки написания по типам: «кончилась квота» и «нечего писать» —
+    // разные беды, и человеку они говорят разное.
+    const writeErrors = new Map<FeedKind, string>();
 
     /* Тройку собирает КОД: по лучшему материалу на каждый тип. */
     const chosen = pickTopics(materials, memory.titles);
@@ -650,6 +647,7 @@ export async function* runFeed(opts: FeedOptions): AsyncGenerator<FeedEvent> {
         };
         yield { type: "topic", topic: res.topic };
       } else {
+        writeErrors.set(chosen[i].anchor.kind, res.error);
         yield {
           type: "log",
           kind: "warn",
@@ -664,9 +662,27 @@ export async function* runFeed(opts: FeedOptions): AsyncGenerator<FeedEvent> {
       };
     }
 
+    /*
+     * При доборе темы других типов берутся из уже сохранённой ленты. Слияние
+     * идёт ДО проверки на пустоту: иначе неудачный добор одного типа ронял бы
+     * весь прогон ошибкой, хотя две готовые темы лежат на диске и никуда
+     * не делись.
+     */
+    if (existing) {
+      const kept = existing.topics.filter((t) => !wanted.includes(t.kind));
+      if (kept.length) {
+        topics.push(...kept);
+        yield { type: "log", kind: "info", text: `Сохранил из сегодняшней ленты: ${kept.length} готовых тем.` };
+      }
+    }
+
     if (!topics.length) {
       yield { type: "step", step: "write", status: "error" };
-      yield { type: "error", message: "Ни одну тему не удалось написать. Скорее всего, исчерпаны квоты моделей." };
+      yield {
+        type: "error",
+        message:
+          "Ни одну тему не удалось написать. Чаще всего это исчерпанные квоты моделей — в логе выше написано, какая именно отказала.",
+      };
       return;
     }
 
@@ -675,10 +691,9 @@ export async function* runFeed(opts: FeedOptions): AsyncGenerator<FeedEvent> {
     topics.sort((a, b) => FEED_KINDS.indexOf(a.kind) - FEED_KINDS.indexOf(b.kind));
 
     const missing = FEED_KINDS.filter((k) => !topics.some((t) => t.kind === k));
+    const gaps = buildGaps(missing, materialsByKind, writeErrors);
     const shortfall = missing.length
-      ? `Сегодня набралось ${topics.length} ${topics.length === 1 ? "тема" : "темы"} вместо трёх. Не нашлось основания для типа: ${missing
-          .map((k) => FEED_KIND_LABEL[k].toLowerCase())
-          .join(", ")}. Выдумывать недостающую тему я не стал.`
+      ? `Сегодня набралось ${topics.length} ${topics.length === 1 ? "тема" : "темы"} вместо трёх. Выдумывать недостающие я не стал — почему их нет, написано под каждым пустым типом.`
       : "";
 
     yield { type: "step", step: "write", status: "done", detail: `${topics.length} тем · ${lap()}` };
@@ -690,6 +705,8 @@ export async function* runFeed(opts: FeedOptions): AsyncGenerator<FeedEvent> {
       createdAt: now.toISOString(),
       topics,
       shortfall,
+      gaps,
+      niche,
       queries: used,
       meta: {
         model,
@@ -701,10 +718,15 @@ export async function* runFeed(opts: FeedOptions): AsyncGenerator<FeedEvent> {
       },
     };
     await saveFeed(feed);
+    // Кошелёк общий на три конвейера: считаем в одном месте, иначе остаток
+    // невозможно увидеть до того, как поиск откажет.
+    const spent = await addUsage({ tavilyCredits: credits, modelCalls });
     yield {
       type: "log",
       kind: "info",
-      text: `Готово за ${Math.round((Date.now() - startedAt) / 1000)} с · вызовов модели: ${modelCalls} · кредитов Tavily: ${credits}.`,
+      text:
+        `Готово за ${Math.round((Date.now() - startedAt) / 1000)} с · вызовов модели: ${modelCalls} · ` +
+        `кредитов Tavily: ${credits}. За месяц: ${spent.tavilyCredits} кредитов, ${spent.runs} прогонов.`,
     };
     yield { type: "done", feed };
   } catch (e) {
@@ -744,7 +766,17 @@ function pickTopics(materials: Material[], pastTitles: string[]): Chosen[] {
     // новости на одном сайте подтверждением друг другу не являются.
     const anchorHost = hostOf(anchor.url);
     const support = materials
-      .filter((m) => m.url !== anchor.url && m.kind === kind && hostOf(m.url) !== anchorHost)
+      .filter(
+        (m) =>
+          m.url !== anchor.url &&
+          m.kind === kind &&
+          hostOf(m.url) !== anchorHost &&
+          // И, главное, про ТО ЖЕ САМОЕ. Раньше проверялись только тип и
+          // домен, и статья про модели доступа к информации «подтверждалась»
+          // постом про B2B-атрибуцию: чужие факты уходили и в балл, и в
+          // источники, и прямо в слайды карусели.
+          titleOverlap(anchor.title, m.title) >= SUPPORT_OVERLAP,
+      )
       .sort((a, b) => b.score - a.score)
       .slice(0, SUPPORT_PER_TOPIC);
     // Балл пересчитывается здесь: независимые подтверждения — это число
@@ -752,7 +784,9 @@ function pickTopics(materials: Material[], pastTitles: string[]): Chosen[] {
     // а не модель: её заявление о подтверждениях проверить нечем.
     const scored: Material = {
       ...anchor,
-      credibility: scoreCredibility({ ...anchor.signals, independentConfirmations: support.length }, anchor.days),
+      credibility: scoreCredibility({ ...anchor.signals, independentConfirmations: support.length }, anchor.days, {
+        opinion: anchor.kind === "opinion",
+      }),
     };
     out.push({ anchor: scored, support });
   }
@@ -807,13 +841,49 @@ async function writeTopic(
     "Напиши тему и три формата. Ссылки в фактах бери ТОЛЬКО из URL выше.",
   ].join("\n\n");
 
+  const pages = [chosen.anchor, ...chosen.support];
+  const allowedUrls = pages.map((m) => m.url);
+
   const failures: string[] = [];
   let calls = 0;
+  /**
+   * Тема, у которой всё на месте, кроме фактов с проверенными ссылками.
+   * Держим её про запас: если следующая модель справится лучше — берём ту,
+   * если нет — отдаём эту, а не теряем оплаченную работу целиком.
+   */
+  let withoutFacts: FeedTopic | null = null;
+  let withoutFactsVia = "";
+  /** Что не подтвердилось на прошлой попытке — уходит в промпт повтора. */
+  let lastUnverified: string[] = [];
+
   // Очередь уже собрана под эту тему: две модели Gemini, дальше Groq.
-  for (const ref of order) {
+  for (const [attempt, ref] of order.entries()) {
     calls++;
     try {
-      const answer = await askRef(client, ref, { system, input, maxTokens: 16000 });
+      // На повторе называем допустимые адреса списком: самая частая причина
+      // потери фактов не в том, что модель их выдумала, а в том, что она
+      // переписала ссылку по памяти вместо копирования из материалов.
+      const thisInput =
+        attempt === 0
+          ? input
+          : [
+              input,
+              `ВАЖНО: в поле url у каждого факта должен стоять ОДИН ИЗ ЭТИХ адресов, скопированный посимвольно:\n${allowedUrls
+                .map((u) => `— ${u}`)
+                .join("\n")}\nЛюбой другой адрес будет отброшен, и факт пропадёт.`,
+              // Повтору называем причину дословно: без неё модель повторяет
+              // ту же выдумку, и лишний вызов уходит впустую.
+              lastUnverified.length
+                ? `Предыдущая попытка не прошла проверку. Система сверяет КАЖДУЮ цифру в кадрах, слайдах и репликах с текстом открытых страниц и не нашла вот этого:\n${lastUnverified
+                    .map((u) => `— ${u}`)
+                    .join(
+                      "\n",
+                    )}\nБери только те числа, которые стоят в материалах выше. Не вычисляй новых: доли, разы и проценты, которых на странице нет, считаются выдумкой. И не пиши от первого лица о встречах, поездках и событиях — система не знает, где владелец был и с кем виделся.`
+                : "",
+            ]
+              .filter(Boolean)
+              .join("\n\n");
+      const answer = await askRef(client, ref, { system, input: thisInput, maxTokens: 16000 });
       const parsed = FeedTopicDraftSchema.safeParse(extractJson(answer.text));
       if (!parsed.success) {
         failures.push(
@@ -828,35 +898,92 @@ async function writeTopic(
 
       // Ссылки в фактах обязаны вести на материалы, которые мы дали модели.
       // Без этой проверки она охотно ставит правдоподобный, но выдуманный URL.
-      const pages = [chosen.anchor, ...chosen.support];
       const facts: Fact[] = draft.facts.filter((f) => pages.some((m) => sameUrl(m.url, f.url)));
 
-      return {
-        topic: {
-          id: `${date}-${kind}`,
-          kind,
-          title: draft.title.trim(),
-          angle: draft.angle.trim(),
-          whyNow: draft.whyNow.trim(),
-          audienceQuestion: draft.audienceQuestion.trim(),
-          facts,
-          // Источники темы — все открытые страницы, на которых она стоит.
-          sources: pages.map((m) => m.source),
-          mentions: [...new Set(pages.flatMap((m) => m.mentions))].slice(0, 6),
-          evidence: chosen.anchor.evidence,
-          credibility: chosen.anchor.credibility,
-          freshness: chosen.anchor.freshness,
-          stories: draft.stories,
-          carousel: draft.carousel,
-          reel: draft.reel,
-        },
-        error: "",
-        calls,
-        via: refLabel(ref),
+      /*
+       * Сверка готового контента со страницами. Это главная проверка в ленте,
+       * и добавлена она после настоящего провала: в кадр ушло «рост в
+       * 3,7-кратном темпе» — числа нет ни на странице, ни в фактах, ни в
+       * цитате, — и «я вернулся с конференции в Алматы», где владелец не был.
+       * Запрет на это стоит в промпте прямым текстом и доказанно не держит,
+       * поэтому проверяет код по тексту скачанных страниц.
+       */
+      const parts = [
+        ...draft.stories.frames.map((f) => ({ where: `сторис, кадр ${f.n}`, text: f.text })),
+        ...draft.carousel.slides.map((sl) => ({ where: `карусель, слайд ${sl.n}`, text: `${sl.title} ${sl.body}` })),
+        { where: "карусель, подпись", text: draft.carousel.caption },
+        { where: "рилс, хук", text: draft.reel.hook },
+        ...draft.reel.script.map((l, n) => ({ where: `рилс, реплика ${n + 1}`, text: l.text })),
+        { where: "рилс, подпись", text: draft.reel.caption },
+      ];
+      const pageTexts = pages.map((m) => m.text);
+      const badNumbers = checkNumbers(parts, pageTexts);
+      const badClaims = firstPersonClaims(parts);
+      const unverified = [
+        ...badNumbers.map((b) => `${b.where}: числа ${b.value} нет ни на одной открытой странице`),
+        ...badClaims.map((b) => `${b.where}: «${b.value}…» — система не может знать, что это было`),
+      ];
+
+      const topic: FeedTopic = {
+        unverified,
+        id: `${date}-${kind}`,
+        kind,
+        title: draft.title.trim(),
+        angle: draft.angle.trim(),
+        whyNow: draft.whyNow.trim(),
+        audienceQuestion: draft.audienceQuestion.trim(),
+        facts,
+        // Источники темы — все открытые страницы, на которых она стоит.
+        sources: pages.map((m) => m.source),
+        mentions: [...new Set(pages.flatMap((m) => m.mentions))].slice(0, 6),
+        evidence: chosen.anchor.evidence,
+        credibility: chosen.anchor.credibility,
+        freshness: chosen.anchor.freshness,
+        stories: draft.stories,
+        carousel: draft.carousel,
+        reel: draft.reel,
       };
+
+      /*
+       * Модель написала факты, но все их ссылки отбракованы — значит она
+       * переписала адреса по памяти. Это поправимо: пробуем следующую модель
+       * со списком допустимых адресов. Готовую тему держим про запас, чтобы
+       * не потерять её, если лучше уже не выйдет.
+       */
+      /*
+       * Выдуманная цифра или рассказ о несуществующем событии — повод
+       * переписать тему на другой модели, а не отдать как есть. Попытка
+       * стоит одного вызова, а цена пропуска — пост с выдуманной
+       * статистикой и настоящей ссылкой рядом.
+       */
+      const spoiled = facts.length === 0 && draft.facts.length > 0;
+      if ((unverified.length > 0 || spoiled) && attempt < order.length - 1) {
+        if (unverified.length) {
+          failures.push(`${refLabel(ref)} — не подтвердилось: ${unverified.slice(0, 2).join("; ")}`);
+        }
+        if (spoiled) failures.push(`${refLabel(ref)} — все ${draft.facts.length} фактов сослались не на те страницы`);
+        lastUnverified = unverified;
+        // Лучший из неудачных вариантов держим про запас: если следующая
+        // модель справится хуже или откажет, отдадим этот — с честной
+        // пометкой, а не потеряем оплаченную работу целиком.
+        if (!withoutFacts || unverified.length < withoutFacts.unverified.length) {
+          withoutFacts = topic;
+          withoutFactsVia = refLabel(ref);
+        }
+        continue;
+      }
+
+      return { topic, error: "", calls, via: refLabel(ref) };
     } catch (e) {
       failures.push(`${refLabel(ref)} — ${describeModelError(e)}`);
     }
+  }
+
+  // Лучше не вышло — отдаём то, что есть. Тема без проверяемых цифр всё
+  // равно стоит на открытом источнике и подтверждённой цитате, а интерфейс
+  // скажет прямо, что цифр в ней нет.
+  if (withoutFacts) {
+    return { topic: withoutFacts, error: "", calls, via: withoutFactsVia };
   }
   return {
     topic: null,
@@ -864,4 +991,92 @@ async function writeTopic(
     calls,
     via: "",
   };
+}
+
+/**
+ * Понятия ниши из ответа модели. Форма у неё плавает — то объекты, то строки,
+ * — поэтому разбираем обе, а падать на разборе дороже, чем принять как есть.
+ */
+function parseNiche(raw: unknown, settings: Settings): Concept[] {
+  const out: Concept[] = [];
+  const push = (name: string, variants: string[]) => {
+    const clean = name.trim();
+    if (!clean || out.length >= 6) return;
+    if (out.some((c) => c.name.toLowerCase() === clean.toLowerCase())) return;
+    out.push({ name: clean, variants: variants.filter((v) => v.trim().length > 1).slice(0, 12) });
+  };
+
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (typeof item === "string") push(item, []);
+      else if (item && typeof item === "object") {
+        const c = item as Record<string, unknown>;
+        const name = typeof c.name === "string" ? c.name : "";
+        if (name) push(name, parseStrings(c.variants ?? c.synonyms, 12));
+      }
+    }
+  }
+  return out.length ? out : nicheFromBrief(settings);
+}
+
+/**
+ * Запасной словарь ниши — из самого брифа. Нужен, когда модель не вернула
+ * понятия: без словаря гейт пропускал бы всё подряд, и лента снова держалась
+ * бы на одном доверии. Берём частые значимые слова из тех полей брифа, где
+ * владелец описывает свою нишу, и считаем каждое отдельным понятием.
+ */
+function nicheFromBrief(settings: Settings): Concept[] {
+  const b = settings.brief;
+  const text = [b.persona, b.topicRules, b.priorities].join(" ");
+  const counts = new Map<string, number>();
+  for (const w of words(text)) {
+    if (w.length < 5) continue;
+    counts.set(w, (counts.get(w) ?? 0) + 1);
+  }
+  const top = [...counts.entries()]
+    .filter(([, n]) => n >= 2)
+    .sort((a, b2) => b2[1] - a[1])
+    .slice(0, 5)
+    .map(([w]) => w);
+  return top.map((w) => ({ name: w, variants: [] }));
+}
+
+/**
+ * Почему тип темы остался пустым. Формулировку пишет КОД по своим счётчикам:
+ * «не нашлось материала» и «кончилась квота» требуют от человека разных
+ * действий, и подменять одно другим нельзя.
+ */
+function buildGaps(
+  missing: FeedKind[],
+  materialsByKind: Map<FeedKind, number>,
+  writeErrors: Map<FeedKind, string>,
+): FeedGap[] {
+  return missing.map((kind) => {
+    const err = writeErrors.get(kind);
+    if (err) {
+      const quota = /квота|лимит|429|413/i.test(err);
+      return {
+        kind,
+        reason: quota
+          ? "Материал нашёлся, но написать не удалось: кончилась квота модели. Стоит повторить — тексты пишутся на нескольких моделях, и у соседней квота своя."
+          : `Материал нашёлся, но написать не удалось: ${err.slice(0, 160)}`,
+        retryable: true,
+      };
+    }
+    const found = materialsByKind.get(kind) ?? 0;
+    if (found > 0) {
+      return {
+        kind,
+        reason:
+          "Материал этого типа нашёлся, но он повторяет тему из прошлых лент. Подставлять повтор я не стал.",
+        retryable: true,
+      };
+    }
+    return {
+      kind,
+      reason:
+        "Сегодня не нашлось ни одной страницы этого типа, которая прошла бы проверку: нужны понятия вашей ниши в тексте и дословная цитата, подтверждённая на самой странице.",
+      retryable: true,
+    };
+  });
 }

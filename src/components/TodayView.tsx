@@ -13,7 +13,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useCallback, useState } from "react";
-import type { DailyFeed, FeedKind, FeedTopic } from "@/lib/schema";
+import type { DailyFeed, FeedGap, FeedKind, FeedTopic } from "@/lib/schema";
 import {
   feedCarouselTextsOnly,
   feedCarouselToText,
@@ -265,6 +265,13 @@ function GroundBlock({ topic }: { topic: FeedTopic }) {
             </blockquote>
           )}
 
+          {topic.facts.length === 0 && (
+            <p className="t-body-sm text-warn">
+              Проверяемых цифр в этой теме нет. Она стоит на открытом источнике и подтверждённой цитате,
+              но числа, которые можно поставить в кадр со ссылкой, на странице не нашлись.
+            </p>
+          )}
+
           {topic.facts.length > 0 && (
             <div>
               <span className="t-kicker">Факты</span>
@@ -341,6 +348,55 @@ function GroundBlock({ topic }: { topic: FeedTopic }) {
   );
 }
 
+/**
+ * Пустой тип темы. Показывается на своём месте в ленте, а не прячется в
+ * предупреждение наверху: слот должен быть виден, причина — написана рядом,
+ * а добрать надо один тип, не трогая две готовые темы.
+ *
+ * Причину пишет код по своим счётчикам, поэтому она проверяема: «не нашлось
+ * страницы, прошедшей проверку» и «кончилась квота» — разные беды.
+ */
+function GapCard({
+  gap,
+  running,
+  preview,
+  onFill,
+}: {
+  gap: FeedGap;
+  running: boolean;
+  preview: boolean;
+  onFill: () => void;
+}) {
+  const Icon = KIND_ICON[gap.kind];
+  return (
+    <FadeUp
+      as="article"
+      className="card flex flex-col gap-3 border-dashed p-5"
+      aria-label={`${FEED_KIND_LABEL[gap.kind]}: тема не собрана`}
+    >
+      <span className="flex items-center gap-2.5">
+        <Icon size={13} className="shrink-0 text-faint" aria-hidden />
+        <Mark tone="neutral">{FEED_KIND_LABEL[gap.kind]}</Mark>
+        <span className="t-micro text-faint">тема не собрана</span>
+      </span>
+
+      <p className="t-body-sm text-fg-soft [text-wrap:pretty]">{gap.reason}</p>
+
+      {gap.retryable && (
+        <div className="flex flex-wrap items-center gap-3">
+          <Button variant="secondary" size="sm" onClick={onFill} disabled={running || preview}>
+            <RefreshCw size={13} aria-hidden />
+            Добрать эту тему
+          </Button>
+          <span className="t-micro text-faint">
+            Поиск пойдёт только по этому типу — готовые темы дня останутся на месте.
+          </span>
+        </div>
+      )}
+    </FadeUp>
+  );
+}
+
 function TopicCard({ topic, index }: { topic: FeedTopic; index: number }) {
   const Icon = KIND_ICON[topic.kind];
   return (
@@ -363,6 +419,25 @@ function TopicCard({ topic, index }: { topic: FeedTopic; index: number }) {
         <h3 className="t-d3 [text-wrap:balance]">{topic.title}</h3>
         <p className="t-content mt-2 text-fg-soft [text-wrap:pretty]">{topic.angle}</p>
       </div>
+
+      {/* Непроверенное — наверху карточки, а не в свёрнутом блоке внизу.
+          Владелец копирует текст сразу; предупреждение, которое надо искать,
+          бесполезно. */}
+      {topic.unverified.length > 0 && (
+        <div role="alert" className="mark border-l-2 border-bad bg-bad-soft px-3 py-2.5">
+          <Mark tone="bad">Проверьте перед публикацией</Mark>
+          <ul className="mt-2 flex flex-col gap-1">
+            {topic.unverified.map((u, i) => (
+              <li key={i} className="t-body-sm text-fg [text-wrap:pretty]">
+                {u}
+              </li>
+            ))}
+          </ul>
+          <p className="t-micro mt-2 text-muted">
+            Это то, чего нет на скачанных страницах. Остальные цифры в теме сверены с источниками.
+          </p>
+        </div>
+      )}
 
       <p className="t-body-sm text-muted [text-wrap:pretty]">
         <span className="t-kicker">Почему сейчас</span> {topic.whyNow}
@@ -426,7 +501,8 @@ export function TodayView({
   date: string;
   running: boolean;
   preview: boolean;
-  onGenerate: () => void;
+  /** kinds задаётся при доборе одного пустого типа. Пусто — собрать всё. */
+  onGenerate: (kinds?: FeedKind[]) => void;
 }) {
   const [confirmRedo, setConfirmRedo] = useState(false);
   const stale = Boolean(feed) && feed?.date !== date;
@@ -450,7 +526,7 @@ export function TodayView({
             : "Три темы разных типов — тренд, экспертное объяснение и повод для спора, — у каждой сразу сторис, карусель и рилс. Каждая тема стоит на открытом источнике, ни одна не повторяет прошлые дни."}
         </p>
         {!running && (
-          <Button variant="primary" onClick={onGenerate} disabled={preview} className="mt-2">
+          <Button variant="primary" onClick={() => onGenerate()} disabled={preview} className="mt-2">
             Собрать ленту на сегодня
           </Button>
         )}
@@ -507,6 +583,18 @@ export function TodayView({
       <Stagger className="flex flex-col gap-4">
         {feed.topics.map((topic, i) => (
           <TopicCard key={topic.id} topic={topic} index={i} />
+        ))}
+        {/* Пустые типы — тоже карточки, а не строчка в предупреждении наверху.
+            Слот виден на своём месте, причина написана рядом, и добрать можно
+            один тип, не пересобирая две готовые темы. */}
+        {feed.gaps.map((gap) => (
+          <GapCard
+            key={gap.kind}
+            gap={gap}
+            running={running}
+            preview={preview}
+            onFill={() => onGenerate([gap.kind])}
+          />
         ))}
       </Stagger>
 

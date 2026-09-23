@@ -141,6 +141,11 @@ export function feedSourcesToText(t: FeedTopic) {
 export function feedTopicToText(t: FeedTopic) {
   return [
     `${FEED_KIND_LABEL[t.kind].toUpperCase()}: ${t.title}`,
+    // Предупреждение уходит в буфер вместе с текстом: человек чаще всего
+    // копирует и вставляет, не возвращаясь к экрану.
+    t.unverified.length
+      ? `!! ПРОВЕРЬТЕ ПЕРЕД ПУБЛИКАЦИЕЙ — этого нет на скачанных страницах: ${t.unverified.join(" · ")}`
+      : "",
     `Угол: ${t.angle}`,
     `Почему сейчас: ${t.whyNow}`,
     t.audienceQuestion ? `Вопрос аудитории: ${t.audienceQuestion}` : "",

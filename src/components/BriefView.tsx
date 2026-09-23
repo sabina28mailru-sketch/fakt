@@ -758,6 +758,13 @@ export function BriefView({
                   <p className="t-body-sm mt-1 max-w-[62ch] text-muted">
                     Это и есть настоящий фильтр: поиск идёт строго по этим адресам, всё остальное отбрасывается.
                   </p>
+                  {/* Без этой оговорки владелец правит списки и не понимает,
+                      почему в главном разделе ничего не меняется. */}
+                  <p className="t-body-sm mt-2 max-w-[62ch] text-faint">
+                    Действует в разделе <b className="text-muted">«Выпуск»</b>. Раздел{" "}
+                    <b className="text-muted">«Сегодня»</b> ищет по всему вебу — иначе тем на каждый день не
+                    набирается, — но каждую найденную страницу проверяет на понятия вашей ниши по тексту.
+                  </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {(addedVsDefault > 0 || removedVsDefault > 0) && (

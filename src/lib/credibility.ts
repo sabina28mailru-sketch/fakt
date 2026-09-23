@@ -52,7 +52,26 @@ export function freshnessOf(days: number | null): Freshness {
 
 const BASE = 40;
 
-export function scoreCredibility(signals: CredibilitySignals, days: number | null): Credibility {
+export interface ScoreOptions {
+  /**
+   * Материал — авторское мнение или колонка, а не сообщение о факте.
+   *
+   * Это не поблажка, а другой вопрос к источнику. У новости спрашивают
+   * «правда ли это и чем подтверждено». У колонки — «действительно ли
+   * человек это сказал и кто он такой». Требовать от мнения первоисточник
+   * и независимые подтверждения бессмысленно: мнение по определению одно
+   * и принадлежит одному человеку. Без этой поправки тип «мнение и спор»
+   * получал 28–43 из 100 всегда, и низкий балл читался как «недостоверно»,
+   * хотя означал лишь «это другой жанр».
+   */
+  opinion?: boolean;
+}
+
+export function scoreCredibility(
+  signals: CredibilitySignals,
+  days: number | null,
+  opts: ScoreOptions = {},
+): Credibility {
   let score = BASE;
   const reasons: string[] = [];
 
@@ -63,18 +82,23 @@ export function scoreCredibility(signals: CredibilitySignals, days: number | nul
   };
 
   if (signals.hasPrimarySource) add(20, "первоисточник найден и открыт");
+  else if (opts.opinion) reasons.push("0 первоисточника нет — у авторского мнения его и не бывает");
   else add(-8, "первоисточник не найден");
 
   const confirms = Math.max(0, Math.min(3, signals.independentConfirmations));
   if (confirms > 0) {
     add(confirms * 5, `независимых подтверждений: ${signals.independentConfirmations}`);
+  } else if (opts.opinion) {
+    reasons.push("0 подтверждений нет — мнение по определению принадлежит одному человеку");
   } else {
     add(-6, "независимых подтверждений нет");
   }
 
   if (signals.peerReviewedOrOfficial) add(10, "рецензируемое исследование или официальная статистика");
   if (signals.outletReputable) add(6, "издание с редакционной ответственностью");
-  if (signals.authorKnown) add(3, "указан автор");
+  // Для колонки названный автор — это и есть главная опора: мнение без
+  // имени не стоит ничего, а мнение с именем можно проверить и оспорить.
+  if (signals.authorKnown) add(opts.opinion ? 12 : 3, opts.opinion ? "автор назван — мнение можно отнести к человеку" : "указан автор");
   if (signals.hasConcreteEvidence) add(6, "в тексте есть конкретика: числа, выборка, цитаты");
   if (signals.quoteShowsIntersection) add(4, "цитата со страницы показывает связь темы целиком");
 
