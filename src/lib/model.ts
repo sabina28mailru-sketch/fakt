@@ -267,7 +267,9 @@ export async function askFirstAvailable(
   client: GoogleGenAI,
   order: ModelRef[],
   p: AskInput,
-  attempts = 4,
+  // Пять: четыре flash плюс замыкающая lite. Меньше — и запасная модель
+  // с самой большой квотой до дела не доходит.
+  attempts = 5,
 ): Promise<{ answer: ModelAnswer; via: string; calls: number }> {
   const failures: string[] = [];
   let calls = 0;

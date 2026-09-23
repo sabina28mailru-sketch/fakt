@@ -11,7 +11,8 @@ import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { loadLib } from "./helpers/load.mjs";
 
-const { siftRotation, writeRotation, rotationFor, FLASH_MODELS, GROQ_MODELS } = await loadLib("src/lib/rotation.ts");
+const { siftRotation, writeRotation, rotationFor, FLASH_MODELS, GROQ_MODELS, FAST_MODEL } =
+  await loadLib("src/lib/rotation.ts");
 
 test("разбор идёт на Groq первым: там суточный лимит на порядки больше", () => {
   const order = siftRotation("gemini-3.8-flash");
@@ -43,8 +44,24 @@ test("выбранная в брифе модель всегда идёт пер
 
 test("очередь не теряет моделей и не дублирует их", () => {
   const order = rotationFor("gemini-3.6-flash");
-  assert.equal(order.length, FLASH_MODELS.length);
-  assert.equal(new Set(order).size, order.length);
+  // Все флагманские плюс лёгкая замыкающей.
+  assert.equal(order.length, FLASH_MODELS.length + 1);
+  assert.equal(new Set(order).size, order.length, `есть дубли: ${order.join(", ")}`);
+  for (const m of FLASH_MODELS) assert.ok(order.includes(m), `потеряна ${m}`);
+});
+
+test("лёгкая модель замыкает очередь, а не открывает её", () => {
+  // У неё суточная квота на порядок больше, но слог слабее: она запас,
+  // а не первый выбор. Без неё все четыре flash выбирались до конца,
+  // и прогон падал, хотя запас ещё был.
+  const order = rotationFor("gemini-3.8-flash");
+  assert.equal(order[order.length - 1], FAST_MODEL);
+  assert.ok(!FLASH_MODELS.includes(FAST_MODEL), "лёгкая не должна числиться флагманской");
+});
+
+test("запас есть и в очереди на написание", () => {
+  const order = writeRotation("gemini-3.8-flash", 0);
+  assert.equal(order[order.length - 1].model, FAST_MODEL);
 });
 
 test("в списке Groq нет модели, которая перевирает цитаты", () => {

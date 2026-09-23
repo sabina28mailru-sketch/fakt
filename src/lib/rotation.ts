@@ -57,7 +57,19 @@ export function hasGroq(): boolean {
  * из брифа обязан идти первым, остальные — запасные карманы квоты.
  */
 export function rotationFor(model: string): string[] {
-  return [model, ...FLASH_MODELS.filter((m) => m !== model)];
+  /*
+   * Лёгкая модель замыкает очередь, а не стоит в стороне.
+   *
+   * Её тут не было, и это стоило прогонов: у флагманских flash суточная
+   * квота 20 запросов на каждую, а у lite — на порядок больше. Когда все
+   * четыре flash выбраны, lite почти наверняка ещё жива, и шаг с большим
+   * входом, который Groq не возьмёт по лимиту токенов в минуту, ей вполне
+   * по силам: контекст у неё тот же.
+   *
+   * Последней, потому что русский слог у неё слабее: пока есть flash,
+   * пишет flash.
+   */
+  return [model, ...FLASH_MODELS.filter((m) => m !== model), FAST_MODEL];
 }
 
 function groqRefs(): ModelRef[] {
@@ -88,7 +100,7 @@ export function writeRotation(model: string, index = 0): ModelRef[] {
   // Только две модели Gemini, дальше сразу Groq: при очереди из четырёх
   // первая тема до запасного провайдера просто не доходила — попытки
   // заканчивались раньше.
-  return [...mine.slice(0, 2), ...groqRefs()];
+  return [...mine.slice(0, 2), ...groqRefs(), { provider: "gemini" as const, model: FAST_MODEL }];
 }
 
 /**
