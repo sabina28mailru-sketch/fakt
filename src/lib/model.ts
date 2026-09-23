@@ -270,7 +270,7 @@ export async function askFirstAvailable(
   // Пять: четыре flash плюс замыкающая lite. Меньше — и запасная модель
   // с самой большой квотой до дела не доходит.
   attempts = 5,
-): Promise<{ answer: ModelAnswer; via: string; calls: number }> {
+): Promise<{ answer: ModelAnswer; via: string; calls: number; failures: string[] }> {
   const failures: string[] = [];
   let calls = 0;
   // Запрос, который Groq заведомо не возьмёт, к нему и не отправляем.
@@ -279,7 +279,7 @@ export async function askFirstAvailable(
     calls++;
     try {
       const answer = await askRef(client, ref, p);
-      return { answer, via: refLabel(ref), calls };
+      return { answer, via: refLabel(ref), calls, failures };
     } catch (e) {
       failures.push(`${refLabel(ref)} — ${describeModelError(e)}`);
     }

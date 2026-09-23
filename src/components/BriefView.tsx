@@ -104,6 +104,17 @@ function fieldsWord(n: number): string {
 /* ---------- ошибки валидации по полям ---------- */
 
 /** Ошибка сервера в форме Zod: путь до поля и текст. */
+/**
+ * Ответ проверки подключения. Проверок несколько, и каждая со своим итогом:
+ * одной строкой их не сказать, а знать, что именно не в порядке — ключ,
+ * поиск или хранилище, — нужно до того, как начнётся прогон.
+ */
+type Health = {
+  ok: boolean;
+  message: string;
+  checks?: { label: string; ok: boolean; detail: string }[];
+};
+
 type FieldIssue = { path: (string | number)[]; message: string };
 
 /** Куда на странице ведёт ошибка: элемент, раздел брифа и вкладка доменов. */
@@ -181,7 +192,7 @@ export function BriefView({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [issues, setIssues] = useState<FieldIssue[]>([]);
   const [checking, setChecking] = useState(false);
-  const [health, setHealth] = useState<{ ok: boolean; message: string } | null>(null);
+  const [health, setHealth] = useState<Health | null>(null);
   const [active, setActive] = useState<GroupId>("connection");
   const [domainTab, setDomainTab] = useState<SourceBucket>("kz");
   const [numRaw, setNumRaw] = useState<Partial<Record<"maxSearches" | "maxFetches", string>>>({});
@@ -297,7 +308,7 @@ export function BriefView({
     setHealth(null);
     try {
       const res = await fetch("/api/health");
-      const json = (await res.json()) as { ok: boolean; message: string };
+      const json = (await res.json()) as Health;
       setHealth(json);
     } catch (e) {
       setHealth({ ok: false, message: e instanceof Error ? e.message : "Сервер не ответил" });
@@ -677,7 +688,14 @@ export function BriefView({
                 ) : (
                   <TriangleAlert size={16} className="mt-0.5 shrink-0 text-bad" aria-hidden />
                 )}
-                <span>{health.message}</span>
+                <span className="flex flex-col gap-1">
+                  <span>{health.message}</span>
+                  {health.checks?.map((c) => (
+                    <span key={c.label} className={c.ok ? "text-dim" : "text-bad"}>
+                      {c.label}: {c.detail}
+                    </span>
+                  ))}
+                </span>
               </motion.div>
             )}
           </Section>
