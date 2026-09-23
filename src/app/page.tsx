@@ -1,21 +1,21 @@
 import { connection } from "next/server";
 import { App } from "@/components/App";
-import { listEditions, readFeed, readResearch, readSettings } from "@/lib/store";
-import { todayIso } from "@/lib/utils";
+import { listEditions, listFeeds, readResearch, readSettings } from "@/lib/store";
 
 export default async function Page() {
   await connection(); // читаем data/ на каждый запрос, а не на этапе сборки
   const [editions, settings, research] = await Promise.all([listEditions(), readSettings(), readResearch()]);
-  // Лента читается по сегодняшней дате пользователя: вчерашнюю показывать
-  // как сегодняшнюю нельзя, раздел про «что снимать сегодня».
-  const feed = await readFeed(todayIso(settings.userLocation.timezone));
+  // Ленты за последние две недели: сегодняшняя открывается сразу, к прошлым
+  // можно вернуться. Без этого вчерашний день терялся целиком — редактор без
+  // подшивки это генератор с одноразовым выводом.
+  const feeds = await listFeeds(14);
   return (
     <App
       initialEditions={editions}
       initialSettings={settings}
       initialTags={research.tags}
       initialResearch={research.results[0]}
-      initialFeed={feed ?? undefined}
+      initialFeeds={feeds}
       preview={false}
     />
   );

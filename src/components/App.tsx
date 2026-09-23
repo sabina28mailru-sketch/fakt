@@ -24,8 +24,8 @@ export interface AppProps {
   /** Сохранённые темы исследования и последний результат — из data/research.json. */
   initialTags?: string[];
   initialResearch?: ResearchResult;
-  /** Лента за сегодня, если она уже собрана. */
-  initialFeed?: DailyFeed;
+  /** Ленты за последние дни, свежие первыми. Сегодняшняя открывается сразу. */
+  initialFeeds?: DailyFeed[];
   initialSettings: Settings;
   preview: boolean;
 }
@@ -68,11 +68,13 @@ export function App(props: AppProps) {
   );
 }
 
-function Shell({ initialEditions, initialSettings, initialTags, initialResearch, initialFeed, preview }: AppProps) {
+function Shell({ initialEditions, initialSettings, initialTags, initialResearch, initialFeeds, preview }: AppProps) {
   const [editions, setEditions] = useState<Edition[]>(initialEditions);
   const [settings, setSettings] = useState<Settings>(initialSettings);
   const [currentId, setCurrentId] = useState<string | undefined>(initialEditions[0]?.id);
-  const [feed, setFeed] = useState<DailyFeed | undefined>(initialFeed);
+  const [feeds, setFeeds] = useState<DailyFeed[]>(initialFeeds ?? []);
+  /** Какой день ленты открыт. Пусто — сегодняшний. */
+  const [feedDate, setFeedDate] = useState<string | undefined>(undefined);
   // «Сегодня» — главный экран: день начинается с него, а не с архива выпусков.
   const [view, setView] = useState<View>("today");
   const [pipeline, setPipeline] = useState<PipelineState>(() => emptyPipeline(STEPS));
@@ -98,6 +100,11 @@ function Shell({ initialEditions, initialSettings, initialTags, initialResearch,
 
   const current = useMemo(() => editions.find((e) => e.id === currentId) ?? editions[0], [editions, currentId]);
   const today = todayIso(settings.userLocation.timezone);
+  // Открытый день: выбранный вручную либо сегодняшний.
+  const shownFeed = useMemo(
+    () => feeds.find((f) => f.date === (feedDate ?? today)),
+    [feeds, feedDate, today],
+  );
   const running = pipeline.status === "running";
   const isToday = current?.date === today;
   const hasToday = useMemo(() => editions.some((e) => e.date === today), [editions, today]);
@@ -257,7 +264,9 @@ function Shell({ initialEditions, initialSettings, initialTags, initialResearch,
           const event = JSON.parse(line.slice(6)) as FeedEvent;
           apply(event);
           if (event.type === "done") {
-            setFeed(event.feed);
+            // Свежесобранная лента заменяет свою дату в подшивке.
+            setFeeds((prev) => [event.feed, ...prev.filter((f) => f.date !== event.feed.date)]);
+            setFeedDate(undefined);
             setView("today");
             toast(
               event.feed.shortfall
@@ -427,8 +436,10 @@ function Shell({ initialEditions, initialSettings, initialTags, initialResearch,
               >
                 {view === "today" && (
                   <TodayView
-                    feed={feed}
+                    feed={shownFeed}
+                    feeds={feeds}
                     date={today}
+                    onPickDate={setFeedDate}
                     running={running}
                     preview={preview}
                     onGenerate={generateFeed}

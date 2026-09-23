@@ -111,3 +111,66 @@ const MONTHS_RU = [
   "декабря",
 ];
 
+
+/**
+ * Признаки материала, которые можно установить ПО ТЕКСТУ, а не спросить
+ * у модели.
+ *
+ * Разбор проекта показал перекос: из восьми сигналов, из которых считается
+ * балл достоверности, кодом ограничивались три, а оба штрафа были
+ * самодоносом — модель должна была сама сообщить, что материал кликбейтный.
+ * Недосообщила — получила почти тридцать баллов сверху. На таких весах
+ * честная статья набирала «низкая», а уверенный пост в соцсети «высокую».
+ *
+ * Здесь собрано то, что проверяется без модели. Остальное по-прежнему
+ * приходит от неё, и об этом честнее сказать прямо, чем делать вид,
+ * что проверено всё.
+ */
+
+/** Сколько отдельных чисел делают материал «конкретным». */
+const CONCRETE_MIN_NUMBERS = 2;
+
+/** В тексте есть конкретика: числа, а не одни рассуждения. */
+export function hasConcreteNumbers(pageText: string, min = CONCRETE_MIN_NUMBERS): boolean {
+  const found = pageText.match(/\d[\d   ]*(?:[.,]\d+)?/g) ?? [];
+  const meaningful = new Set(found.map((x) => x.replace(/[\s  ]/g, "").replace(",", ".")));
+  return meaningful.size >= min;
+}
+
+/** Домены, за которыми стоит учреждение, а не редакция или автор. */
+const OFFICIAL_HOSTS = [".gov", ".gov.kz", ".edu", ".ac.uk", "who.int", "oecd.org", "worldbank.org", "stat.gov.kz"];
+const RESEARCH_HOSTS = ["doi.org", "arxiv.org", "nature.com", "science.org", "pubmed.ncbi.nlm.nih.gov", "jstor.org"];
+
+/**
+ * Официальный или научный источник по адресу. Заявление модели об этом
+ * стоит +10 к баллу, и подтверждать его доменом дешевле, чем верить.
+ */
+export function isOfficialOrResearch(url: string): boolean {
+  let host = "";
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  return [...OFFICIAL_HOSTS, ...RESEARCH_HOSTS].some((d) => host === d || host.endsWith(d));
+}
+
+/**
+ * Кликбейт по заголовку. Раньше штраф ставился только если модель сама
+ * донесёт на материал; теперь самые явные признаки видит код.
+ */
+export function looksClickbait(title: string): boolean {
+  const t = title.trim();
+  if (!t) return false;
+  if (/[!?]{2,}/.test(t)) return true;
+  // \b в JavaScript не знает кириллицы (\w это [A-Za-z0-9_]), поэтому
+  // граница слова написана явным классом: без этого «Шок:» не ловился.
+  if (/(^|[^а-яёa-z])(шок|сенсаци|вы не поверите|никто не ожидал|взорвал интернет|срочно)/i.test(t)) return true;
+  if (/(секрет|правд|лайфхак|способ|ошибк)[а-яё]*\s*,?\s*котор[а-яё]+\s+(скрыва|молчат|не расскаж)/i.test(t)) {
+    return true;
+  }
+  // Заголовок капсом целиком: не стиль, а крик.
+  const letters = t.replace(/[^A-Za-zА-Яа-яЁё]/g, "");
+  if (letters.length >= 12 && letters === letters.toUpperCase()) return true;
+  return false;
+}

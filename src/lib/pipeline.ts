@@ -17,6 +17,7 @@ import { askModel, describeModelError, type ModelAnswer, type ModelParams } from
 import { openPages, tavilySearch, type SearchHit } from "./search";
 import { BUCKETS, type SourceBucket } from "./sources";
 import { addUsage, nextEditionId, saveEdition } from "./store";
+import { verifyEdition } from "./verify-edition";
 import { formatDateRu, hostOf, rubricIndex, weekdayRu } from "./utils";
 
 type CreateParams = ModelParams;
@@ -227,6 +228,14 @@ export async function* runPipeline(opts: PipelineOptions): AsyncGenerator<Pipeli
     /* ---------- 2. Проверка ---------- */
     yield { type: "step", step: "verify", status: "running" };
     let pagesBlock = "Страницы не открывались.";
+    /**
+     * Тексты скачанных страниц. Держим в этой области видимости, потому что
+     * на шаге валидации ими проверяются цитаты и цифры: до этой правки
+     * раздел «Выпуск» не проверял НИЧЕГО — цитата реального человека со
+     * ссылкой уходила в файл и на экран прямо из ответа модели.
+     */
+    const openedTexts: string[] = [];
+    const openedUrls = new Set<string>();
     let failedBlock = "";
 
     if (settings.maxFetches > 0) {
@@ -292,6 +301,10 @@ export async function* runPipeline(opts: PipelineOptions): AsyncGenerator<Pipeli
           });
         }
         const opened = await pending;
+        for (const pg of opened.pages) {
+          openedTexts.push(pg.text);
+          openedUrls.add(pg.url);
+        }
         fetches = opened.pages.length;
         credits += opened.credits;
         if (opened.pages.length) pagesBlock = pagesToText(opened.pages);
@@ -367,10 +380,26 @@ export async function* runPipeline(opts: PipelineOptions): AsyncGenerator<Pipeli
       const parsed = EditionDraftSchema.safeParse(draftJson);
       if (parsed.success) {
         const id = await nextEditionId(date);
+        /*
+         * Проверка кодом. До этого в разделе «Выпуск» её не было вообще:
+         * единственной преградой была форма Zod, а цитаты, даты и цифры
+         * шли из ответа модели прямо в файл. В выпуске за 22 сентября это
+         * дало дословную цитату реального человека со ссылкой на страницу,
+         * где такого предложения нет. Механизм лежал в соседнем модуле и
+         * работал в ленте — здесь он просто не был подключён.
+         */
+        const checked = verifyEdition(parsed.data, openedTexts, openedUrls);
+        for (const line of checked.notes) {
+          yield { type: "log", kind: "warn", text: line };
+        }
+
         const edition: Edition = {
           id,
           createdAt: new Date().toISOString(),
           ...parsed.data,
+          expertLens: checked.expertLens,
+          facts: checked.facts,
+          unverified: [...parsed.data.unverified, ...checked.unverified],
           date,
           weekday,
           rubric: parsed.data.rubric || rubricTitle,

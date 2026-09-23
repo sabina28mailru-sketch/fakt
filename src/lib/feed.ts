@@ -26,7 +26,15 @@ import {
 import { openPages, tavilySearchMany, type SearchHit } from "./search";
 import { ageInDays, freshnessOf, scoreCredibility, type CredibilitySignals } from "./credibility";
 import { conceptInText, evidenceInText, titleOverlap, words } from "./text-match";
-import { isFeedPage, normalizeDate, pageDate, sameUrl } from "./page-guards";
+import {
+  hasConcreteNumbers,
+  isFeedPage,
+  isOfficialOrResearch,
+  looksClickbait,
+  normalizeDate,
+  pageDate,
+  sameUrl,
+} from "./page-guards";
 import { checkNumbers, firstPersonClaims } from "./numbers";
 import { addUsage, readFeed, readFeedMemory, saveFeed } from "./store";
 import { FEED_KIND_LABEL, hostOf, weekdayRu } from "./utils";
@@ -532,11 +540,16 @@ export async function* runFeed(opts: FeedOptions): AsyncGenerator<FeedEvent> {
         // Подтверждения считает код — по числу других открытых страниц той же
         // темы. Заявление модели тут ничего не стоит: проверить его нечем.
         independentConfirmations: 0,
-        peerReviewedOrOfficial: Boolean(rawSignals.peerReviewedOrOfficial),
+        // +10 за научность подтверждается доменом: заявление модели об этом
+        // стоило десять баллов и не проверялось ничем.
+        peerReviewedOrOfficial: Boolean(rawSignals.peerReviewedOrOfficial) && isOfficialOrResearch(url),
         outletReputable: Boolean(rawSignals.outletReputable) && !isSelfPublished(url),
         authorKnown: Boolean(rawSignals.authorKnown),
-        hasConcreteEvidence: Boolean(rawSignals.hasConcreteEvidence),
-        clickbaitMarkers: Boolean(rawSignals.clickbaitMarkers),
+        // Конкретику определяет код по тексту: «в материале есть числа» —
+        // это наблюдаемый факт, а не мнение.
+        hasConcreteEvidence: hasConcreteNumbers(pageText),
+        // Штраф больше не самодонос: явный кликбейт код видит сам.
+        clickbaitMarkers: Boolean(rawSignals.clickbaitMarkers) || looksClickbait(pageTitle),
         unverifiedClaims: Boolean(rawSignals.unverifiedClaims),
         quoteShowsIntersection: true,
       };

@@ -489,14 +489,63 @@ function TopicCard({ topic, index }: { topic: FeedTopic; index: number }) {
   );
 }
 
+/**
+ * Подшивка: дни, за которые лента уже собрана. Лежит в самом разделе, а не
+ * в «Истории», потому что вчерашние темы ищут именно здесь. До этого
+ * вчерашний день был недостижим вовсе — сайт читал только сегодняшний файл.
+ */
+function DayStrip({
+  feeds,
+  shown,
+  today,
+  onPick,
+}: {
+  feeds: DailyFeed[];
+  shown?: string;
+  today: string;
+  onPick: (date?: string) => void;
+}) {
+  if (feeds.length < 2) return null;
+  return (
+    <nav className="scroll-x flex gap-1.5 pb-1" aria-label="Дни, за которые собрана лента">
+      {feeds.map((f) => {
+        const active = f.date === (shown ?? today);
+        return (
+          <button
+            key={f.date}
+            type="button"
+            onClick={() => onPick(f.date === today ? undefined : f.date)}
+            aria-current={active ? "page" : undefined}
+            className={cn(
+              "shrink-0 rounded-[4px] border px-2.5 py-1.5 text-left transition-colors duration-150",
+              active ? "border-accent bg-accent-soft text-fg" : "border-line text-muted hover:text-fg",
+            )}
+          >
+            <span className="t-meta block">{f.date.slice(8, 10)}.{f.date.slice(5, 7)}</span>
+            <span className="t-micro block text-faint">
+              {f.topics.length} из 3
+              {f.date === today && " · сегодня"}
+            </span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
 export function TodayView({
   feed,
+  feeds,
+  onPickDate,
   date,
   running,
   preview,
   onGenerate,
 }: {
   feed?: DailyFeed;
+  /** Дни, за которые лента уже собрана, свежие первыми. */
+  feeds: DailyFeed[];
+  onPickDate: (date?: string) => void;
   /** Сегодняшняя дата по часовому поясу пользователя. */
   date: string;
   running: boolean;
@@ -514,7 +563,9 @@ export function TodayView({
 
   if (!feed || !feed.topics.length) {
     return (
-      <div className="flex flex-col items-center gap-4 py-20 text-center">
+      <div className="flex flex-col gap-6">
+        <DayStrip feeds={feeds} shown={feed?.date} today={date} onPick={onPickDate} />
+        <div className="flex flex-col items-center gap-4 py-16 text-center">
         <Sparkles size={30} className="text-muted" aria-hidden />
         <span className="t-kicker">{formatDateRu(date)}</span>
         <h2 className="font-display text-[19px] leading-tight font-semibold">
@@ -530,13 +581,15 @@ export function TodayView({
             Собрать ленту на сегодня
           </Button>
         )}
-        {preview && <p className="t-micro text-faint">В статичном превью генерация недоступна.</p>}
+          {preview && <p className="t-micro text-faint">В статичном превью генерация недоступна.</p>}
+        </div>
       </div>
     );
   }
 
   return (
     <div className="flex flex-col gap-6 pb-4">
+      <DayStrip feeds={feeds} shown={feed.date} today={date} onPick={onPickDate} />
       <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
         <div className="min-w-0">
           <div className="t-kicker mb-2">Лента дня</div>
