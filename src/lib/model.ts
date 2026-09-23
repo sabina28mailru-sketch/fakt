@@ -1,4 +1,15 @@
 import { ApiError, GoogleGenAI, type Interactions } from "@google/genai";
+import {
+  FAST_MODEL,
+  queueForSize,
+  refLabel,
+  type ModelRef,
+} from "./rotation";
+
+// Выбор моделей живёт в rotation.ts и переэкспортируется отсюда:
+// вызывающему коду незачем знать, что это два файла, а тесту важно,
+// что чистую логику можно собрать без клиента Gemini.
+export * from "./rotation";
 
 /**
  * Общий доступ к модели для конвейера выпуска и для исследования темы.
@@ -95,32 +106,6 @@ export async function askModel(client: GoogleGenAI, params: ModelParams): Promis
 }
 
 /**
- * Лёгкая модель для вспомогательных шагов. На бесплатном тарифе квота
- * считается ОТДЕЛЬНО по каждой модели, и у lite она на порядок больше,
- * чем 20 запросов в сутки у флагманской. Разложить запрос на понятия и
- * собрать сводку из уже отобранных материалов — работа не для флагмана:
- * lite делает её и быстрее, и не из того же кармана.
- */
-export const FAST_MODEL = "gemini-3.1-flash-lite";
-
-/**
- * Модели одного класса для параллельной работы. Смысл в том, что на
- * бесплатном тарифе суточная квота считается ОТДЕЛЬНО по каждой модели:
- * четыре пачки на четырёх моделях стоят по одному запросу из четырёх
- * разных карманов, а не четыре из одного. Класс один (flash), поэтому
- * строгость разбора между пачками не расходится.
- */
-export const FLASH_MODELS = ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash"];
-
-/**
- * Ротация, начинающаяся с выбранной пользователем модели. Его выбор из
- * брифа обязан идти первым, остальные — запасные карманы квоты.
- */
-export function rotationFor(model: string): string[] {
-  return [model, ...FLASH_MODELS.filter((m) => m !== model)];
-}
-
-/**
  * Вызов на лёгкой модели с откатом на основную. Откат нужен, потому что
  * список моделей у Google меняется: если lite недоступна (404) или её квота
  * тоже выбрана, шаг обязан пройти, а не уронить весь прогон.
@@ -190,44 +175,17 @@ export function describeModelError(e: unknown): string {
    OpenRouter) — добавится строка в PROVIDERS и ключ в .env.local.
    ══════════════════════════════════════════════════════════════════ */
 
-export type Provider = "gemini" | "groq";
-
-export interface ModelRef {
-  provider: Provider;
-  model: string;
-}
-
 export interface AskInput {
   system: string;
   input: string;
   maxTokens: number;
 }
 
-/**
- * Модели Groq, проверенные на ДОСЛОВНОЕ цитирование русского текста.
- * Это не украшение списка: наш код сверяет цитату с текстом страницы и
- * отбрасывает материал, если её там нет. Модель, которая пересказывает
- * своими словами, тратит вызов впустую.
- *
- * Проверка живым запросом: gpt-oss-120b и qwen3.8-27b цитируют дословно,
- * а gpt-oss-20b переписала «считают» в «считаются» и обрезала фразу —
- * её здесь нет намеренно.
- *
- * Порядок не случаен. gpt-oss-120b стабильно берёт пачку из четырёх страниц
- * за 6–7 секунд, а qwen на том же объёме отвечает 429 даже после повторов:
- * у него на бесплатном тарифе заметно меньше токенов в минуту. Поэтому
- * рабочая лошадь — первая, вторая идёт запасной на случай её отказа.
- */
-export const GROQ_MODELS = ["openai/gpt-oss-120b", "qwen/qwen3.8-27b"];
-
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
-
-export function hasGroq(): boolean {
-  return Boolean(process.env.GROQ_API_KEY);
-}
 
 /** Запрос к провайдеру протокола OpenAI. */
 async function askOpenAiCompatible(url: string, apiKey: string, model: string, p: AskInput): Promise<ModelAnswer> {
+  const wantsJson = /json/i.test(p.system) || /json/i.test(p.input);
   const res = await fetch(url, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -240,7 +198,17 @@ async function askOpenAiCompatible(url: string, apiKey: string, model: string, p
       max_tokens: p.maxTokens,
       // Низкая температура: здесь нужен разбор и точная цитата, а не выдумка.
       temperature: 0.3,
-      response_format: { type: "json_object" },
+      /*
+       * Режим JSON включается, только если о JSON просит сам промпт.
+       *
+       * Groq отвергает запрос с 400, если response_format задан, а слова
+       * «json» в сообщениях нет: «messages must contain the word json in
+       * some form». Раньше режим стоял всегда, и шаги, которым нужна проза
+       * — заметки ресерча и сверка фактов, — падали на ровном месте.
+       * Проверка по тексту промпта совпадает с требованием провайдера
+       * буквально, поэтому и флага снаружи не нужно.
+       */
+      ...(wantsJson ? { response_format: { type: "json_object" } } : {}),
     }),
   });
   if (!res.ok) {
@@ -284,58 +252,47 @@ export async function askRef(client: GoogleGenAI, ref: ModelRef, p: AskInput): P
   });
 }
 
-/** Как называть модель человеку в логе: провайдер важен, префикс пути — нет. */
-export function refLabel(ref: ModelRef): string {
-  return ref.provider === "groq" ? `groq/${ref.model.split("/").pop()}` : ref.model;
-}
-
 /**
- * Очередь для РАЗБОРА страниц. Groq впереди: у него суточный лимит на три
- * порядка больше, а на замере пачка разбиралась секунды вместо минут.
- * Gemini остаётся в хвосте на случай, если ключа Groq нет или он отказал.
+ * Спросить первую модель из очереди, которая ответит.
+ *
+ * Один и тот же цикл перебора был написан трижды — в ленте, в судействе
+ * и при написании темы, — а в разделе «Выпуск» его не было вовсе: все пять
+ * вызовов шли на одну модель, и кончившаяся у неё суточная квота роняла
+ * весь прогон на первом же шаге.
+ *
+ * Возвращает ещё и то, кто ответил: когда стиль текста вдруг другой,
+ * человек должен видеть причину, а не гадать.
  */
-export function siftRotation(model: string): ModelRef[] {
-  const groq: ModelRef[] = hasGroq() ? GROQ_MODELS.map((m) => ({ provider: "groq" as const, model: m })) : [];
-  return [...groq, ...rotationFor(model).map((m) => ({ provider: "gemini" as const, model: m }))];
-}
-
-/**
- * Сколько моделей в начале очереди имеют большую квоту. Пачки распределяются
- * по кругу ИМЕННО по ним: иначе третья пачка уходила на Gemini и падала на
- * исчерпанной квоте, хотя у Groq лимит и не думал кончаться.
- */
-export function abundantCount(refs: ModelRef[]): number {
-  const n = refs.filter((r) => r.provider === "groq").length;
-  return n > 0 ? n : refs.length;
-}
-
-/**
- * Сколько пачек можно запускать одновременно. У Groq лимит считается в
- * токенах за минуту и ОБЩИЙ на ключ, поэтому две пачки разом его пробивают:
- * на замере одна проходила за 6 секунд, а вторая получала 429. Когда работа
- * идёт через Groq, пачки выстраиваются в очередь — он настолько быстрее,
- * что три пачки подряд всё равно занимают около двадцати секунд против
- * двух-четырёх минут, которые тот же отбор занимал на Gemini.
- */
-export function lanesFor(refs: ModelRef[]): number {
-  return refs[0]?.provider === "groq" ? 1 : Math.max(1, refs.length);
-}
-
-/**
- * Очередь для НАПИСАНИЯ контента. Здесь порядок обратный: русский текст
- * голосом владельца пишет Gemini, и только когда его суточная квота
- * кончится, тема уходит на Groq — лучше другой стиль, чем ничего.
- */
-export function writeRotation(model: string, index = 0): ModelRef[] {
-  const gemini = rotationFor(model).map((m) => ({ provider: "gemini" as const, model: m }));
-  // Каждая тема начинает со СВОЕЙ модели Gemini: три темы пишутся
-  // параллельно, и три запроса подряд к одной модели стоили бы трёх
-  // из одной суточной квоты вместо одного из трёх разных карманов.
-  const start = index % gemini.length;
-  const mine = gemini.slice(start).concat(gemini.slice(0, start));
-  const groq: ModelRef[] = hasGroq() ? GROQ_MODELS.map((m) => ({ provider: "groq" as const, model: m })) : [];
-  // Берём только две модели Gemini, дальше сразу Groq. Раньше очередь была
-  // из четырёх Gemini, и при выбранной квоте первая тема до Groq просто
-  // не доходила: четыре попытки заканчивались до запасного провайдера.
-  return [...mine.slice(0, 2), ...groq];
+export async function askFirstAvailable(
+  client: GoogleGenAI,
+  order: ModelRef[],
+  p: AskInput,
+  attempts = 4,
+): Promise<{ answer: ModelAnswer; via: string; calls: number }> {
+  const failures: string[] = [];
+  let calls = 0;
+  // Запрос, который Groq заведомо не возьмёт, к нему и не отправляем.
+  const queue = queueForSize(order, p.system.length + p.input.length);
+  for (const ref of queue.slice(0, Math.max(1, attempts))) {
+    calls++;
+    try {
+      const answer = await askRef(client, ref, p);
+      return { answer, via: refLabel(ref), calls };
+    } catch (e) {
+      failures.push(`${refLabel(ref)} — ${describeModelError(e)}`);
+    }
+  }
+  /*
+   * Когда отказали ВСЕ — человеку нужен не список жалоб, а понимание,
+   * что делать. Список остаётся ниже, но первым идёт вывод.
+   */
+  const allQuota = failures.length > 1 && failures.every((f) => /квота|лимит/i.test(f));
+  if (allQuota) {
+    throw new Error(
+      `Свободных моделей не осталось: квота кончилась у всех ${failures.length}, которые были в очереди. ` +
+        `Суточные лимиты сбрасываются в полночь по тихоокеанскому времени. Прогон ничего не потратил зря — ` +
+        `поиск и открытые страницы не оплачиваются моделями. Подробности: ${failures.join(" | ")}`,
+    );
+  }
+  throw new Error(failures.join(" | ") || "Ни одна модель не ответила.");
 }

@@ -13,14 +13,20 @@ import {
   buildWriteSystem,
   usedTopicsBlock,
 } from "./brief";
-import { askModel, describeModelError, type ModelAnswer, type ModelParams } from "./model";
+import {
+  askFirstAvailable,
+  describeModelError,
+  rotationFor,
+  siftRotation,
+  writeRotation,
+  type ModelAnswer,
+} from "./model";
 import { openPages, tavilySearch, type SearchHit } from "./search";
 import { BUCKETS, type SourceBucket } from "./sources";
 import { addUsage, nextEditionId, saveEdition } from "./store";
 import { verifyEdition } from "./verify-edition";
 import { formatDateRu, hostOf, rubricIndex, weekdayRu } from "./utils";
 
-type CreateParams = ModelParams;
 type Answer = ModelAnswer;
 
 const TIME_RANGES = ["week", "month", "year"] as const;
@@ -134,6 +140,14 @@ export async function* runPipeline(opts: PipelineOptions): AsyncGenerator<Pipeli
   }
 
   const client = new GoogleGenAI({ apiKey });
+  /*
+   * Очереди моделей. Механические шаги идут на Groq: там суточный лимит
+   * на порядки больше, а работа не требует русского слога. Написание
+   * остаётся на Gemini, потому что именно его голосом владелец публикует.
+   */
+  const mechanical = siftRotation(settings.model);
+  const geminiOnly = rotationFor(settings.model).map((m) => ({ provider: "gemini" as const, model: m }));
+  const forWriting = writeRotation(settings.model, 0);
   const startedAt = Date.now();
   const weekday = weekdayRu(date);
   const rubric = settings.brief.rubrics[rubricIndex(date)] ?? settings.brief.rubrics[0];
@@ -148,21 +162,15 @@ export async function* runPipeline(opts: PipelineOptions): AsyncGenerator<Pipeli
     inputTokens += a.inputTokens;
     outputTokens += a.outputTokens;
   };
-  const cfg = (maxTokens: number): CreateParams["generation_config"] => ({
-    max_output_tokens: maxTokens,
-    thinking_level: "low",
-  });
 
   try {
     /* ---------- 1. Ресерч ---------- */
     yield { type: "step", step: "research", status: "running" };
     yield { type: "log", kind: "info", text: `Сегодня ${weekday}, ${formatDateRu(date)}. Рубрика: ${rubricTitle}.` };
 
-    const plan = await askModel(client, {
-      model: settings.model,
-      system_instruction: buildQueriesSystem(settings),
-      generation_config: cfg(4000),
-      store: false,
+    const plan = await askFirstAvailable(client, mechanical, {
+      system: buildQueriesSystem(settings),
+      maxTokens: 4000,
       input: [
         `Сегодня ${weekday}, ${formatDateRu(date)} (${date}). Рубрика дня: ${rubric}.`,
         `Геофокус: ${settings.userLocation.city}, ${settings.userLocation.country}. Запросы по блокам kz и cis формулируй так, чтобы находились материалы, релевантные этому рынку.`,
@@ -172,9 +180,9 @@ export async function* runPipeline(opts: PipelineOptions): AsyncGenerator<Pipeli
         .filter(Boolean)
         .join("\n\n"),
     });
-    account(plan);
-    const queries = parseQueries(plan.text, settings.maxSearches);
-    yield { type: "log", kind: "info", text: `План: ${queries.length} запросов.` };
+    account(plan.answer);
+    const queries = parseQueries(plan.answer.text, settings.maxSearches);
+    yield { type: "log", kind: "info", text: `План: ${queries.length} запросов · ${plan.via}.` };
 
     const hits: { bucket: SourceBucket; hit: SearchHit }[] = [];
     const seenUrls = new Set<string>();
@@ -211,18 +219,17 @@ export async function* runPipeline(opts: PipelineOptions): AsyncGenerator<Pipeli
       );
     }
 
-    const research = await askModel(client, {
-      model: settings.model,
-      system_instruction: buildResearchSystem(settings),
-      generation_config: cfg(24000),
-      store: false,
+    const research = await askFirstAvailable(client, mechanical, {
+      system: buildResearchSystem(settings),
+      maxTokens: 24000,
       input: `Сегодня ${weekday}, ${formatDateRu(date)}. Рубрика дня: ${rubric}.\n\nРЕЗУЛЬТАТЫ ПОИСКА:\n\n${hitsToText(hits)}`,
     });
-    account(research);
-    const researchNotes = research.text;
+    account(research.answer);
+    const researchNotes = research.answer.text;
     if (researchNotes.trim().length < 200) {
       throw new Error("Ресерч вернул почти пустые заметки — проверьте модель.");
     }
+    yield { type: "log", kind: "result", text: `Заметки ресерча собрал ${research.via}.` };
     yield { type: "step", step: "research", status: "done", detail: `${searches} поисков, ${hits.length} источников` };
 
     /* ---------- 2. Проверка ---------- */
@@ -239,15 +246,13 @@ export async function* runPipeline(opts: PipelineOptions): AsyncGenerator<Pipeli
     let failedBlock = "";
 
     if (settings.maxFetches > 0) {
-      const pick = await askModel(client, {
-        model: settings.model,
-        system_instruction: buildPickUrlsSystem(settings),
-        generation_config: cfg(4000),
-        store: false,
+      const pick = await askFirstAvailable(client, mechanical, {
+        system: buildPickUrlsSystem(settings),
+        maxTokens: 4000,
         input: `ЗАМЕТКИ РЕСЕРЧА:\n\n${researchNotes}`,
       });
-      account(pick);
-      const urls = parseUrls(pick.text, settings.maxFetches);
+      account(pick.answer);
+      const urls = parseUrls(pick.answer.text, settings.maxFetches);
 
       if (urls.length) {
         // openPages отдаёт строки колбэком, поэтому пропускаем их через очередь и
@@ -316,15 +321,14 @@ export async function* runPipeline(opts: PipelineOptions): AsyncGenerator<Pipeli
       }
     }
 
-    const verified = await askModel(client, {
-      model: settings.model,
-      system_instruction: buildVerifySystem(settings),
-      generation_config: cfg(24000),
-      store: false,
+    const verified = await askFirstAvailable(client, geminiOnly, {
+      system: buildVerifySystem(settings),
+      maxTokens: 24000,
       input: `Сегодня ${weekday}, ${formatDateRu(date)}.\n\nЗАМЕТКИ РЕСЕРЧА:\n\n${researchNotes}\n\nТЕКСТЫ ОТКРЫТЫХ СТРАНИЦ:\n\n${pagesBlock}${failedBlock}`,
     });
-    account(verified);
-    const verifiedNotes = verified.text;
+    account(verified.answer);
+    const verifiedNotes = verified.answer.text;
+    yield { type: "log", kind: "result", text: `Факты сверил ${verified.via}.` };
     yield { type: "step", step: "verify", status: "done", detail: `${fetches} страниц открыто` };
 
     /* ---------- 3. Тема и три формата ---------- */
@@ -345,11 +349,9 @@ export async function* runPipeline(opts: PipelineOptions): AsyncGenerator<Pipeli
 
     while (attempt < 2) {
       attempt++;
-      const write = await askModel(client, {
-        model: settings.model,
-        system_instruction: writeSystem,
-        generation_config: cfg(32000),
-        store: false,
+      const write = await askFirstAvailable(client, forWriting, {
+        system: writeSystem,
+        maxTokens: 32000,
         input:
           attempt === 1
             ? writeUser
@@ -359,8 +361,9 @@ export async function* runPipeline(opts: PipelineOptions): AsyncGenerator<Pipeli
                 `JSON не прошёл проверку структуры: ${lastError}. Верни исправленный JSON целиком, без пояснений.`,
               ].join("\n\n"),
       });
-      account(write);
-      draftText = write.text;
+      account(write.answer);
+      draftText = write.answer.text;
+      yield { type: "log", kind: "result", text: `Выпуск написал ${write.via}.` };
       yield { type: "step", step: "write", status: "done" };
 
       /* ---------- 4. Валидация ---------- */

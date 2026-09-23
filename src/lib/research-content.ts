@@ -1,7 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { EditionDraftSchema, type Edition, type PipelineEvent, type ResearchResult, type Settings } from "./schema";
 import { JSON_SHAPE, buildWriteSystem } from "./brief";
-import { askModel, describeModelError } from "./model";
+import { askFirstAvailable, describeModelError, writeRotation } from "./model";
 import { nextEditionId, saveEdition } from "./store";
 import { formatDateRu, weekdayRu } from "./utils";
 
@@ -98,11 +98,12 @@ export async function* runResearchContent(opts: ContentOptions): AsyncGenerator<
 
     while (attempt < 2) {
       attempt++;
-      const write = await askModel(client, {
-        model: settings.model,
-        system_instruction: contentSystem(settings, result.topic),
-        generation_config: { max_output_tokens: 32000, thinking_level: "low" },
-        store: false,
+      // Ротация вместо одной модели: раньше кончившаяся суточная квота
+      // роняла превращение темы в выпуск целиком. Русский текст — Gemini
+      // первым, Groq запасным.
+      const write = await askFirstAvailable(client, writeRotation(settings.model, 0), {
+        system: contentSystem(settings, result.topic),
+        maxTokens: 32000,
         input:
           attempt === 1
             ? userBlock
@@ -112,9 +113,9 @@ export async function* runResearchContent(opts: ContentOptions): AsyncGenerator<
                 `JSON не прошёл проверку структуры: ${lastError}. Верни исправленный JSON целиком, без пояснений.`,
               ].join("\n\n"),
       });
-      inputTokens += write.inputTokens;
-      outputTokens += write.outputTokens;
-      draftText = write.text;
+      inputTokens += write.answer.inputTokens;
+      outputTokens += write.answer.outputTokens;
+      draftText = write.answer.text;
       yield { type: "step", step: "write", status: "done" };
 
       yield { type: "step", step: "validate", status: "running" };
